@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Convention Queue — Artist Panel</title>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@500,700&display=swap" rel="stylesheet">
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        :root,[data-theme="light"]{
+            --text-xs:clamp(.75rem,.7rem + .25vw,.875rem);
+            --text-sm:clamp(.875rem,.8rem + .35vw,1rem);
+            --text-base:clamp(1rem,.95rem + .25vw,1.125rem);
+            --text-lg:clamp(1.125rem,1rem + .75vw,1.5rem);
+            --text-xl:clamp(1.5rem,1.2rem + 1.25vw,2.25rem);
+            --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;
+            --space-5:1.25rem;--space-6:1.5rem;--space-8:2rem;--space-10:2.5rem;
+            --space-12:3rem;--space-16:4rem;
+            --color-bg:#f7f6f2;--color-surface:#f9f8f5;--color-surface-2:#fbfbf9;
+            --color-surface-offset:#edeae5;--color-border:#d4d1ca;--color-divider:#dcd9d5;
+            --color-text:#28251d;--color-text-muted:#6c6a64;--color-text-faint:#9b9993;
+            --color-text-inverse:#f9f8f4;
+            --color-primary:#01696f;--color-primary-hover:#0c4e54;--color-primary-highlight:#dcebea;
+            --color-success:#29a24c;--color-success-bg:#dcffe3;
+            --color-danger:#c03040;--color-danger-bg:#ffe0e3;
+            --color-waiting:#8a8882;--color-waiting-bg:#ece9e4;
+            --radius-sm:.5rem;--radius-md:.75rem;--radius-lg:1rem;--radius-xl:1.25rem;--radius-full:9999px;
+            --shadow-sm:0 1px 2px rgba(26,24,19,.06);--shadow-md:0 8px 24px rgba(26,24,19,.08);
+            --transition:180ms cubic-bezier(.16,1,.3,1);
+            --font-body:'Satoshi',Inter,sans-serif;--font-display:'Cabinet Grotesk','Satoshi',sans-serif;
+        }
+        [data-theme="dark"]{
+            --color-bg:#171614;--color-surface:#1c1b19;--color-surface-2:#201f1d;
+            --color-surface-offset:#262422;--color-border:#3a3836;--color-divider:#2c2a28;
+            --color-text:#ece9e3;--color-text-muted:#b6b2aa;--color-text-faint:#86827a;
+            --color-text-inverse:#171614;
+            --color-primary:#5ea8b2;--color-primary-hover:#7bbac3;
+            --color-primary-highlight:rgba(94,168,178,.14);
+            --color-success:#70d68d;--color-success-bg:rgba(54,133,78,.28);
+            --color-danger:#ff8c95;--color-danger-bg:rgba(165,65,76,.24);
+            --color-waiting:#bdb7ac;--color-waiting-bg:rgba(130,124,112,.24);
+            --shadow-sm:0 1px 2px rgba(0,0,0,.22);--shadow-md:0 8px 24px rgba(0,0,0,.35);
+        }
+        *{box-sizing:border-box;}
+        html{-webkit-text-size-adjust:100%;text-size-adjust:100%;height:100%;overflow-x:hidden;}
+        body{margin:0;min-height:100dvh;font-family:var(--font-body);font-size:var(--text-base);background:var(--color-bg);color:var(--color-text);line-height:1.55;overflow-x:hidden;}
+        button,input,select{font:inherit;color:inherit;}
+        a{color:inherit;text-decoration:none;}
+        #authGate{min-height:100dvh;display:grid;place-items:center;padding:var(--space-4);}
+        .auth-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-xl);box-shadow:var(--shadow-md);padding:var(--space-8);width:min(100%,400px);display:grid;gap:var(--space-5);}
+        .auth-logo{display:flex;align-items:center;gap:var(--space-3);}
+        .logo{width:2.5rem;height:2.5rem;border-radius:var(--radius-md);background:linear-gradient(135deg,var(--color-primary),color-mix(in srgb,var(--color-primary) 60%,white));display:grid;place-items:center;color:white;box-shadow:var(--shadow-sm);flex:none;}
+        .logo svg{width:1.35rem;height:1.35rem;}
+        .auth-title,.page-title,.section-title,.brand-title,.modal-title{font-family:var(--font-display);letter-spacing:-.03em;margin:0;}
+        .auth-title{font-size:var(--text-xl);}
+        .auth-sub{color:var(--color-text-muted);font-size:var(--text-sm);margin-top:.2rem;}
+        .field-label{font-size:var(--text-sm);font-weight:700;margin-bottom:var(--space-2);display:block;}
+        .input,.number-input{width:100%;min-height:48px;padding:0 var(--space-4);background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-lg);outline:none;transition:border-color var(--transition),box-shadow var(--transition);}
+        .input:focus,.number-input:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-primary) 18%,transparent);}
+        .auth-error{color:var(--color-danger);font-size:var(--text-sm);min-height:1.2em;}
+        .shell{min-height:100dvh;display:grid;grid-template-rows:auto minmax(0,1fr);}
+        .shell > *{min-width:0;}
+        .topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--color-bg) 88%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid var(--color-divider);padding:calc(env(safe-area-inset-top) + var(--space-3)) var(--space-4) var(--space-3);}
+        .topbar-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);}
+        .topbar-nav{display:flex;gap:var(--space-2);overflow-x:auto;scrollbar-width:none;}
+        .topbar-nav::-webkit-scrollbar{display:none;}
+        .topbar-actions{display:flex;gap:var(--space-2);flex-shrink:0;}
+        .icon-btn,.btn,.nav-chip{min-height:44px;min-width:44px;border:1px solid var(--color-border);background:var(--color-surface);border-radius:var(--radius-full);transition:transform var(--transition),background var(--transition),border-color var(--transition),color var(--transition),rotate var(--transition);}
+        .icon-btn:active,.btn:active,.nav-chip:active{transform:scale(.98);}
+        .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;cursor:pointer;line-height:1;flex:none;}
+        .icon-btn > span,.icon-btn > svg{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;flex:none;}
+        .icon-btn > span > svg{width:19px;height:19px;display:block;}
+        .nav-chip{padding:0 var(--space-4);white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;font-size:var(--text-sm);color:var(--color-text-muted);font-weight:500;}
+        .nav-chip.active{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-text-inverse);font-weight:700;}
+        .page{width:min(100%,1180px);margin:0 auto;padding:var(--space-5) var(--space-4) calc(var(--space-8) + env(safe-area-inset-bottom));min-height:0;}
+        .stack{display:grid;gap:var(--space-4);}
+        .card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-xl);box-shadow:var(--shadow-sm);padding:var(--space-5);min-width:0;}
+        .eyebrow{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.14em;color:var(--color-text-muted);font-weight:700;}
+        .page-title{font-size:var(--text-xl);line-height:1;}
+        .section-title{font-size:var(--text-lg);line-height:1;letter-spacing:-.02em;}
+        .subtle{color:var(--color-text-muted);font-size:var(--text-sm);}
+        .micro{color:var(--color-text-faint);font-size:var(--text-xs);}
+        .btn-row,.admin-actions,.legend-row,.modal-actions{display:flex;flex-wrap:wrap;gap:var(--space-3);}
+        .admin-actions-container { display:grid; gap:var(--space-3); }
+        .admin-actions .btn{min-height:54px;padding:0 var(--space-5);font-size:var(--text-sm);} @media(min-width:760px){ .admin-actions .btn{min-height:60px;padding:0 var(--space-6);} }
+        .btn{padding:0 var(--space-5);border-radius:var(--radius-full);display:inline-flex;align-items:center;justify-content:center;gap:var(--space-2);font-size:var(--text-sm);font-weight:700;cursor:pointer;}
+        .btn-primary{background:var(--color-primary);color:var(--color-text-inverse);border-color:var(--color-primary);}
+        .btn-primary:hover{background:var(--color-primary-hover);}
+        .btn-secondary{background:var(--color-surface);}
+        .btn-success{background:var(--color-success-bg);border-color:transparent;color:color-mix(in srgb,var(--color-success) 85%,black);}
+        .btn-danger{background:var(--color-danger-bg);border-color:transparent;color:var(--color-danger);}
+        .pill{display:inline-flex;align-items:center;gap:var(--space-2);border-radius:var(--radius-full);padding:.32rem .68rem;font-size:var(--text-xs);font-weight:700;border:1px solid transparent;}
+        .pill.waiting{background:var(--color-waiting-bg);color:var(--color-waiting);}
+        .pill.allowed{background:var(--color-success-bg);color:color-mix(in srgb,var(--color-success) 85%,black);}
+        .pill.expired{background:var(--color-danger-bg);color:var(--color-danger);}
+        .meta-grid{display:grid;gap:var(--space-3);grid-template-columns:repeat(2,minmax(0,1fr));}
+        .meta{background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4);min-height:124px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:var(--space-2);}
+        .meta.is-action{cursor:pointer;transition:transform var(--transition),border-color var(--transition),background var(--transition),box-shadow var(--transition);text-align:left;width:100%;}
+        .meta.is-action:hover{border-color:color-mix(in srgb,var(--color-primary) 40%,var(--color-border));background:color-mix(in srgb,var(--color-primary-highlight) 36%,var(--color-surface-2));}
+        .meta.is-action:active{transform:scale(.99);}
+        .meta-label{color:var(--color-text-muted);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:var(--space-2);}
+        .meta-value{font-size:var(--text-base);font-weight:700;}
+        .meta-note{font-size:var(--text-xs);color:var(--color-text-muted);}
+        .refresh-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);}
+        .split{display:grid;gap:var(--space-4);align-items:start;}
+        .queue-card{display:grid;gap:var(--space-4);min-height:0;}
+        .queue-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);}
+        .legend-row{align-items:center;gap:var(--space-2);}
+        .queue-list-wrap{border:1px solid var(--color-border);border-radius:var(--radius-xl);background:var(--color-surface-2);padding:var(--space-2);}
+        .queue-list{display:grid;gap:var(--space-2);max-height:min(62dvh,640px);overflow:auto;padding-right:var(--space-1);scroll-behavior:smooth;overscroll-behavior:contain;min-height:0;}
+        .queue-item{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:var(--space-3);padding:var(--space-4);border-radius:var(--radius-lg);border:1px solid var(--color-border);background:var(--color-surface);}
+        .queue-badge{width:3.4rem;height:3.4rem;border-radius:var(--radius-lg);display:grid;place-items:center;font-family:var(--font-display);font-size:1.15rem;font-weight:700;letter-spacing:-.04em;}
+        .queue-badge.waiting{background:var(--color-waiting-bg);color:var(--color-waiting);}
+        .queue-badge.allowed{background:var(--color-success-bg);color:color-mix(in srgb,var(--color-success) 85%,black);}
+        .queue-badge.expired{background:var(--color-danger-bg);color:var(--color-danger);}
+        .tap-btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 var(--space-4);border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--surface);font-weight:700;cursor:pointer;}
+        .tap-btn strong{font-size:var(--text-base);}
+        .catalogue-admin-grid{display:grid;gap:var(--space-4);}
+        .catalogue-admin-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-xl);overflow:hidden;}
+        .catalogue-admin-card.dragging{opacity:.5;transform:scale(.98);}
+        .catalogue-admin-card img{width:100%;height:auto;display:block;}
+        .catalogue-admin-toolbar{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-4);border-top:1px solid var(--color-divider);}
+        .notice{border-radius:var(--radius-lg);padding:var(--space-4);background:var(--color-primary-highlight);color:var(--color-text);border:1px solid color-mix(in srgb,var(--color-primary) 20%,var(--color-border));font-size:var(--text-sm);}
+        .empty{text-align:center;padding:var(--space-10) var(--space-4);border:1px dashed var(--color-border);border-radius:var(--radius-xl);color:var(--color-text-muted);background:var(--color-surface);}
+        .hidden{display:none!important;}
+        .spin-once{animation:spinOnce .85s cubic-bezier(.16,1,.3,1) 1;}
+        @keyframes spinOnce{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        .modal-backdrop{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);display:grid;place-items:end center;padding:var(--space-4);}
+        .modal{width:min(100%,420px);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-xl) var(--radius-xl) 0 0;box-shadow:var(--shadow-md);padding:var(--space-5);display:grid;gap:var(--space-4);}
+        .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);}
+        .modal-title{font-size:var(--text-lg);line-height:1;}
+        .modal-display{min-height:64px;display:flex;align-items:center;justify-content:flex-end;padding:0 var(--space-4);border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface-2);font-family:var(--font-display);font-size:clamp(1.6rem,1.4rem + 1vw,2.4rem);letter-spacing:-.04em;}
+        .number-pad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3);}
+        .pad-key{min-height:64px;border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface-2);font-weight:700;font-size:var(--text-lg);cursor:pointer;}
+        .pad-key.action{font-size:var(--text-sm);}
+        .queue-list::-webkit-scrollbar{width:10px;height:10px;}
+        .queue-list::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--color-border) 82%,transparent);border-radius:999px;}
+        @media(min-width:760px){
+            .split{grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);}
+            .catalogue-admin-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+            .meta-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
+            .modal-backdrop{place-items:center;}
+            .modal{border-radius:var(--radius-xl);}
+        }
+        @media(min-width:980px){
+            .split{grid-template-columns:minmax(560px,1fr) minmax(360px,420px);}
+            .page{padding-top:var(--space-4);}
+            .meta-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+            .queue-list{max-height:min(68dvh,720px);}
+        }
+        @media(min-width:1180px){
+            .split{grid-template-columns:minmax(620px,1fr) minmax(360px,420px);gap:var(--space-5);}
+            .card{padding:var(--space-6);}
+        }
+        @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
+    </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+    const { useCallback, useEffect, useRef, useState } = React;
+
+    const CONFIG = {
+        API_BASE: '',
+        THEME_COOKIE: 'con_theme_artist',
+        AUTO_REFRESH_MS: 60000,
+    };
+
+    function getRoute() { return location.hash.replace('#','').trim() || 'artist-queue'; }
+    function setCookie(name, value, days = 30) {
+        const exp = new Date(Date.now() + days * 86400000).toUTCString();
+        document.cookie = `${name}=${encodeURIComponent(value)}; expires=${exp}; path=/; SameSite=Lax`;
+    }
+    function getCookie(name) {
+        const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\/+^]/g,'\\$&') + '=([^;]*)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+    function fmtNum(n) {
+        if (n === null || n === undefined || Number.isNaN(Number(n))) return 'XXX';
+        return String(n).padStart(3, '0');
+    }
+    function parseD(v) { return v ? new Date(v) : null; }
+    function roundDown(v) { const d = parseD(v); if (!d) return null; d.setSeconds(0,0); return d; }
+    function roundUp(v) { const d = parseD(v); if (!d) return null; if (d.getSeconds() !== 0 || d.getMilliseconds() !== 0) d.setMinutes(d.getMinutes()+1); d.setSeconds(0,0); return d; }
+    function fmtTime(v, mode='down') { const d = mode === 'up' ? roundUp(v) : roundDown(v); if (!d) return '—'; return d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }); }
+    function fmtJoined(v) { const d = roundDown(v); if (!d) return '—'; return d.toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }); }
+    function entryStatus(entry, currentTime) { if (entry.leftQueue) return 'expired'; if (!entry.allowedIn) return 'waiting'; const now = parseD(currentTime), exp = parseD(entry.expiresAt); if (now && exp && now < exp) return 'allowed'; return 'expired'; }
+    function refreshIcon() { return React.createElement('svg', { width:19, height:19, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:'2.1', strokeLinecap:'round', strokeLinejoin:'round' }, React.createElement('path', { d:'M21 2v6h-6' }), React.createElement('path', { d:'M3 12a9 9 0 0 1 15.5-6.36L21 8' }), React.createElement('path', { d:'M3 22v-6h6' }), React.createElement('path', { d:'M21 12a9 9 0 0 1-15.5 6.36L3 16' })); }
+
+    function NumberPadModal({ open, title, subtitle, initialValue, confirmLabel, onClose, onConfirm }) {
+        const [value, setValue] = useState(initialValue ? String(initialValue) : '');
+        useEffect(() => { setValue(initialValue ? String(initialValue) : ''); }, [initialValue, open]);
+        useEffect(() => {
+            if (!open) return;
+            const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+            window.addEventListener('keydown', onKey);
+            return () => window.removeEventListener('keydown', onKey);
+        }, [open, onClose]);
+        if (!open) return null;
+        const append = (digit) => setValue(prev => (prev === '0' ? digit : prev + digit));
+        const backspace = () => setValue(prev => prev.slice(0, -1));
+        const clear = () => setValue('');
+        const submit = () => {
+            const num = Number(value);
+            if (!value || Number.isNaN(num) || num <= 0) { alert('Enter a valid number greater than 0.'); return; }
+            onConfirm(num);
+        };
+        const keys = ['1','2','3','4','5','6','7','8','9','C','0','⌫'];
+        return (
+            <div className="modal-backdrop" onClick={onClose} role="presentation">
+                <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" onClick={e => e.stopPropagation()}>
+                    <div className="modal-header">
+                        <div>
+                            <h2 className="modal-title" id="modalTitle">{title}</h2>
+                            {subtitle ? <p className="subtle">{subtitle}</p> : null}
+                        </div>
+                        <button className="icon-btn" onClick={onClose} aria-label="Close keypad">×</button>
+                    </div>
+                    <div className="modal-display">{value || '0'}</div>
+                    <div className="number-pad">
+                        {keys.map((key) => (
+                            <button
+                                key={key}
+                                className={`pad-key ${isNaN(Number(key)) ? 'action' : ''}`}
+                                onClick={() => key === 'C' ? clear() : key === '⌫' ? backspace() : append(key)}
+                                type="button"
+                            >
+                                {key}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="modal-actions">
+                        <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
+                        <button className="btn btn-primary" onClick={submit} type="button">{confirmLabel}</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    function AuthGate({ onLogin }) {
+        const [password, setPassword] = useState('');
+        const [error, setError] = useState('');
+        const [busy, setBusy] = useState(false);
+        const tryLogin = async () => {
+            const pw = password.trim();
+            if (!pw) { setError('Please enter the password.'); return; }
+            setError('');
+            setBusy(true);
+            try {
+                const r = await fetch(CONFIG.API_BASE + '/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ password: pw })
+                });
+                if (r.status === 401) throw new Error('Incorrect password.');
+                if (!r.ok) throw new Error('Server error.');
+                onLogin(true);
+            } catch (e) {
+                setError(e.message);
+            } finally {
+                setBusy(false);
+            }
+        };
+        return (
+            <div id="authGate">
+                <div className="auth-card">
+                    <div className="auth-logo">
+                        <div className="logo" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M7 5h10"/><path d="M7 12h10"/><path d="M7 19h6"/><path d="M4 5h.01M4 12h.01M4 19h.01"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div className="brand-title">Artist Panel</div>
+                            <div className="auth-sub">Queue &amp; catalogue management</div>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="field-label" htmlFor="passwordInput">Password</label>
+                        <input className="input" id="passwordInput" type="password" autoComplete="current-password" placeholder="Enter artist password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && tryLogin()} />
+                    </div>
+                    <div className="auth-error" aria-live="polite">{error}</div>
+                    <button className="btn btn-primary" onClick={tryLogin} disabled={busy} style={{width:'100%'}}>{busy ? 'Checking…' : 'Enter panel'}</button>
+                </div>
+            </div>
+        );
+    }
+
+    function QueuePage({ api, queueData, setQueueData, animateRefresh }) {
+        const [modal, setModal] = useState(null);
+        const queueListRef = useRef(null);
+        const itemRefs = useRef({});
+
+        const loadQueue = useCallback(async () => {
+            try {
+                const data = await animateRefresh('queue', () => api('/api/artist/queue'));
+                setQueueData(data);
+            } catch (e) {
+                alert(e.message || 'Could not load queue data.');
+            }
+        }, [api, animateRefresh, setQueueData]);
+
+        useEffect(() => {
+            if (!queueData.loaded) loadQueue();
+        }, [queueData.loaded, loadQueue]);
+
+        useEffect(() => {
+            if (!queueData.entries.length) return;
+            const container = queueListRef.current;
+            if (!container) return;
+
+            const allowedEntries = queueData.entries.filter(entry => entryStatus(entry, queueData.currentTime) === 'allowed');
+
+            if (allowedEntries.length === 0) {
+                container.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+                const maxAllowedNum = Math.max(...allowedEntries.map(e => e.queueNumber));
+                const targetNum = maxAllowedNum + 1;
+
+                const targetEntry = queueData.entries.find(e => e.queueNumber === targetNum);
+
+                if (targetEntry) {
+                    const node = itemRefs.current[targetEntry.queueNumber];
+                    if (node) {
+                        const top = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2;
+                        container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+                    }
+                } else {
+                    const maxAllowedEntry = queueData.entries.find(e => e.queueNumber === maxAllowedNum);
+                    if (maxAllowedEntry) {
+                        const node = itemRefs.current[maxAllowedEntry.queueNumber];
+                        if (node) {
+                            const top = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2;
+                            container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+                        }
+                    }
+                }
+            }
+        }, [queueData.entries, queueData.currentTime]);
+
+        const allowUsers = async (count) => {
+            try {
+                await api('/api/artist/allow', { method:'POST', body: JSON.stringify({ count }) });
+                await loadQueue();
+            } catch (e) {
+                alert(e.message);
+            }
+        };
+
+        const clearQueue = async () => {
+            if (!window.confirm("Are you sure you want to clear the entire queue? This action cannot be undone.")) return;
+            try {
+                await api('/api/artist/clear', { method: 'POST' });
+                await loadQueue();
+            } catch (e) {
+                alert(e.message || "Could not clear queue.");
+            }
+        };
+
+        if (!queueData.loaded) return <section className="stack"><div className="notice">Loading queue data…</div></section>;
+        const currentTime = queueData.currentTime;
+        const highest = fmtNum(queueData.highestServingQueueNumber);
+
+        const flippedEntries = [...queueData.entries].reverse();
+
+        return (
+            <section className="stack">
+                <div className="split">
+                    <div className="card stack">
+                        <div className="refresh-row">
+                            <div><h1 className="page-title">Queue management</h1></div>
+                            <button className="icon-btn" onClick={loadQueue} aria-label="Refresh queue">
+                                <span className={queueData.refreshing ? 'spin-once' : ''}>{refreshIcon()}</span>
+                            </button>
+                        </div>
+                        <div className="meta-grid">
+                            <div className="meta"><div className="meta-label">Serving through</div><div className="meta-value">{highest}</div></div>
+                            <div className="meta"><div className="meta-label">Total waiting</div><div className="meta-value">{queueData.entries.filter(e=>!e.leftQueue&&!e.allowedIn).length}</div></div>
+                            <div className="meta"><div className="meta-label">Currently allowed</div><div className="meta-value">{queueData.entries.filter(e=>entryStatus(e,currentTime)==='allowed').length}</div></div>
+                            <button className="meta is-action" type="button" onClick={() => setModal({ type:'window', title:'Set access window', subtitle:'Enter the access window in minutes. Only applies to new approvals.', value: '', confirmLabel:'Save window' })}>
+                                <div className="meta-label">Access window</div>
+                                <div className="tap-btn" style={{pointerEvents:'none'}}><strong>{queueData.accessWindowMinutes} min</strong></div>
+                                <div className="meta-note">Tap to change</div>
+                            </button>
+                        </div>
+                        <div className="admin-actions-container">
+                            <div className="admin-actions">
+                                {[5,10,15].map(count => <button key={count} className="btn btn-success" onClick={() => allowUsers(count)}>Let {count}</button>)}
+                                <button className="btn btn-primary" onClick={() => setModal({ type:'allow', title:'Let users in', subtitle:'Enter how many users to allow right now.', value:'', confirmLabel:'Let users' })}>Let X</button>
+                            </div>
+                            {queueData.lastRefreshedAt && (
+                                <div className="micro" style={{ paddingLeft: 'var(--space-1)' }}>
+                                    Last refreshed: {queueData.lastRefreshedAt.toLocaleTimeString([], { hour:'numeric', minute:'2-digit', second:'2-digit' })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="card queue-card">
+                        <div className="queue-card-header">
+                            <div>
+                                <h2 className="section-title">Live queue</h2>
+                            </div>
+                        </div>
+                        <div className="legend-row" aria-label="Queue legend">
+                            <span className="pill waiting">Waiting</span>
+                            <span className="pill allowed">Allowed</span>
+                            <span className="pill expired">Expired</span>
+                        </div>
+                        <div className="queue-list-wrap">
+                            <div className="queue-list" ref={queueListRef}>
+                                {flippedEntries.length ? (
+                                    <>
+                                        {flippedEntries.map(entry => {
+                                            const status = entryStatus(entry, currentTime);
+                                            return (
+                                                <div className="queue-item" data-status={status} key={entry.id || entry.queueNumber + '-' + entry.joinedAt} ref={el => { itemRefs.current[entry.queueNumber] = el; }}>
+                                                    <div className={`queue-badge ${status}`}>{fmtNum(entry.queueNumber)}</div>
+                                                    <div>
+                                                        <div><strong>{fmtNum(entry.queueNumber)}</strong></div>
+                                                        <div className="micro">Joined {fmtJoined(entry.joinedAt)}</div>
+                                                        <div className="micro">{entry.leftQueue ? 'Left queue' : entry.allowedIn ? `Allowed ${fmtTime(entry.allowedIn,'down')} · Expires ${fmtTime(entry.expiresAt,'up')}` : 'Waiting to be called'}</div>
+                                                    </div>
+                                                    <span className={`pill ${status}`}>{entry.leftQueue ? 'Left' : status[0].toUpperCase()+status.slice(1)}</span>
+                                                </div>
+                                            );
+                                        })}
+                                        <div className="card stack" style={{ border: '1px dashed var(--color-danger)', background: 'color-mix(in srgb, var(--color-danger-bg) 8%, var(--color-surface))', marginTop: 'var(--space-2)', padding: 'var(--space-4)' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                <h3 className="section-title" style={{ color: 'var(--color-danger)', fontSize: 'var(--text-sm)', fontWeight: 700 }}>Clear Queue</h3>
+                                                <p className="micro">This action cannot be undone.</p>
+                                            </div>
+                                            <button className="btn btn-danger" onClick={clearQueue} style={{ width: '100%', minHeight: '44px' }}>Clear Entire Queue</button>
+                                        </div>
+                                    </>
+                                ) : <div className="empty">No queue entries yet.</div>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <NumberPadModal
+                    open={!!modal}
+                    title={modal?.title || ''}
+                    subtitle={modal?.subtitle || ''}
+                    initialValue={modal?.value || ''}
+                    confirmLabel={modal?.confirmLabel || 'Save'}
+                    onClose={() => setModal(null)}
+                    onConfirm={async (num) => {
+                        if (modal?.type === 'allow') await allowUsers(num);
+                        if (modal?.type === 'window') {
+                            try {
+                                await api('/api/artist/access-window', { method:'POST', body: JSON.stringify({ accessWindowMinutes: num }) });
+                                await loadQueue();
+                            } catch (e) {
+                                alert(e.message);
+                            }
+                        }
+                        setModal(null);
+                    }}
+                />
+            </section>
+        );
+    }
+
+    function CataloguePage({ api, catalogueState, setCatalogueState, animateRefresh }) {
+        const loadCatalogue = useCallback(async () => {
+            try {
+                const data = await animateRefresh('catalogue', () => api('/api/catalogue'));
+                setCatalogueState({ loaded: true, refreshing: false, images: [...(data.images || [])].sort((a,b) => a.order - b.order) });
+            } catch (e) {
+                alert(e.message || 'Could not load catalogue.');
+            }
+        }, [api, animateRefresh, setCatalogueState]);
+
+        useEffect(() => { if (!catalogueState.loaded) loadCatalogue(); }, [catalogueState.loaded, loadCatalogue]);
+
+        const updateImages = (images) => setCatalogueState(prev => ({ ...prev, images }));
+
+        const enableDragSort = (container) => {
+            if (!container) return;
+            let dragEl = null;
+            container.querySelectorAll('.catalogue-admin-card').forEach(card => {
+                card.ondragstart = () => { dragEl = card; card.classList.add('dragging'); };
+                card.ondragend = () => {
+                    card.classList.remove('dragging'); dragEl = null;
+                    const keys = [...container.querySelectorAll('.catalogue-admin-card')].map(el => el.dataset.key);
+                    updateImages(keys.map(k => catalogueState.images.find(i => i.imageKey === k)).filter(Boolean));
+                };
+                card.ondragover = (e) => {
+                    e.preventDefault();
+                    if (!dragEl) return;
+                    const after = [...container.querySelectorAll('.catalogue-admin-card:not(.dragging)')].reduce((cl, ch) => {
+                        const box = ch.getBoundingClientRect();
+                        const off = e.clientY - box.top - box.height / 2;
+                        return off < 0 && off > cl.offset ? { offset: off, el: ch } : cl;
+                    }, { offset: Number.NEGATIVE_INFINITY }).el;
+                    if (!after) container.appendChild(dragEl);
+                    else if (after !== dragEl) container.insertBefore(dragEl, after);
+                };
+            });
+        };
+
+        useEffect(() => {
+            enableDragSort(document.getElementById('catalogueAdminGrid'));
+        }, [catalogueState.images]);
+
+        if (!catalogueState.loaded) return <section className="stack"><div className="notice">Loading catalogue…</div></section>;
+
+        return (
+            <section className="stack">
+                <div className="card stack">
+                    <div className="refresh-row">
+                        <div><h1 className="page-title">Catalogue management</h1></div>
+                        <button className="icon-btn" onClick={loadCatalogue} aria-label="Refresh catalogue"><span className={catalogueState.refreshing ? 'spin-once' : ''}>{refreshIcon()}</span></button>
+                    </div>
+                    <p className="subtle">Drag cards to reorder, then press &quot;Save order&quot;. Click Replace or Remove on any image to manage it.</p>
+                </div>
+                <CatalogueControls api={api} images={catalogueState.images} reload={loadCatalogue} />
+            </section>
+        );
+    }
+
+    function CatalogueControls({ api, images, reload }) {
+        const uploadRef = useRef(null);
+        const uploadNew = async (file) => {
+            if (!file) return;
+            try {
+                const fd = new FormData(); fd.append('file', file);
+                const res = await fetch(CONFIG.API_BASE + '/api/catalogue/upload', { method:'POST', credentials: 'include', body: fd });
+                if (res.status === 401) throw new Error('Unauthorized');
+                if (!res.ok) { let detail = 'Request failed'; try { const e = await res.json(); detail = e.message || detail; } catch(_) {} throw new Error(detail); }
+                await reload();
+            } catch (e) { alert(e.message); }
+        };
+        const saveOrder = async () => {
+            try {
+                const items = images.map((img, i) => ({ imageKey: img.imageKey, order: i + 1 }));
+                await api('/api/catalogue/reorder', { method:'POST', body: JSON.stringify({ items }) });
+                alert('Image order saved.');
+                await reload();
+            } catch (e) { alert(e.message); }
+        };
+        const replaceImage = async (imageKey, file) => {
+            if (!file) return;
+            try {
+                const fd = new FormData(); fd.append('imageKey', imageKey); fd.append('file', file);
+                const res = await fetch(CONFIG.API_BASE + '/api/catalogue/replace', { method:'PUT', credentials: 'include', body: fd });
+                if (res.status === 401) throw new Error('Unauthorized');
+                if (!res.ok) { let detail = 'Request failed'; try { const e = await res.json(); detail = e.message || detail; } catch(_) {} throw new Error(detail); }
+                await reload();
+            } catch (e) { alert(e.message); }
+        };
+        const removeImage = async (imageKey) => {
+            if (!confirm('Remove this image? This cannot be undone.')) return;
+            try {
+                await api('/api/catalogue/remove', { method:'DELETE', body: JSON.stringify({ imageKey }) });
+                await reload();
+            } catch (e) { alert(e.message); }
+        };
+        return (
+            <>
+                <div className="btn-row">
+                    <button className="btn btn-primary" onClick={() => uploadRef.current?.click()}>Upload new image</button>
+                    <button className="btn btn-secondary" onClick={saveOrder}>Save image order</button>
+                </div>
+                <input className="hidden" type="file" ref={uploadRef} accept="image/*" onChange={e => uploadNew(e.target.files?.[0])} />
+                <div className="catalogue-admin-grid" id="catalogueAdminGrid">
+                    {images.length ? images.map((img, idx) => (
+                        <article className="catalogue-admin-card" draggable="true" data-index={idx} data-key={img.imageKey} key={img.imageKey}>
+                            <img src={img.imageUrl} alt={`Catalogue image ${idx+1}`} loading="lazy" decoding="async" />
+                            <div className="catalogue-admin-toolbar">
+                                <span className="pill waiting">Order {idx+1}</span>
+                                <label className="btn btn-secondary" style={{cursor:'pointer'}}>
+                                    Replace
+                                    <input className="hidden" type="file" accept="image/*" onChange={e => replaceImage(img.imageKey, e.target.files?.[0])} />
+                                </label>
+                                <button className="btn btn-danger" onClick={() => removeImage(img.imageKey)}>Remove</button>
+                            </div>
+                        </article>
+                    )) : <div className="empty">No catalogue images uploaded yet. Upload one above.</div>}
+                </div>
+            </>
+        );
+    }
+
+    function AppShell() {
+        const [sessionReady, setSessionReady] = useState(false);
+        const [theme, setTheme] = useState('light');
+        const [route, setRoute] = useState(getRoute());
+        const [queueData, setQueueData] = useState({ loaded:false, refreshing:false, entries:[], accessWindowMinutes:30, currentTime:null, highestServingQueueNumber:null, lastRefreshedAt:null });
+        const [catalogueState, setCatalogueState] = useState({ loaded:false, refreshing:false, images:[] });
+
+        useEffect(() => {
+            const saved = getCookie(CONFIG.THEME_COOKIE);
+            const sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme:dark)').matches;
+            const initial = saved || (sysDark ? 'dark' : 'light');
+            setTheme(initial);
+            document.documentElement.setAttribute('data-theme', initial);
+        }, []);
+
+        useEffect(() => {
+            fetch(CONFIG.API_BASE + '/api/me', { credentials: 'include' })
+                .then(r => r.ok ? r.json() : { authenticated: false })
+                .then(data => { if (data.authenticated) setSessionReady(true); })
+                .catch(() => {});
+        }, []);
+
+        useEffect(() => {
+            const onHash = () => setRoute(getRoute());
+            window.addEventListener('hashchange', onHash);
+            return () => window.removeEventListener('hashchange', onHash);
+        }, []);
+
+        useEffect(() => { window.__artistSessionReady = sessionReady; }, [sessionReady]);
+
+        useEffect(() => {
+            if (!sessionReady) return;
+            const timer = setInterval(() => {
+                if (getRoute() === 'artist-catalogue') return;
+                animateRefresh('queue', () => api('/api/artist/queue')).then(data => setQueueData(data)).catch(() => {});
+            }, CONFIG.AUTO_REFRESH_MS);
+            return () => clearInterval(timer);
+        }, [sessionReady, route]);
+
+        const api = useCallback(async (path, opts = {}) => {
+            const headers = { ...(opts.headers || {}) };
+            const isForm = opts.body instanceof FormData;
+            if (!isForm && opts.body != null && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+            const res = await fetch(CONFIG.API_BASE + path, { ...opts, headers, credentials: 'include' });
+            if (res.status === 401) {
+                setSessionReady(false);
+                setQueueData({ loaded:false, refreshing:false, entries:[], accessWindowMinutes:30, currentTime:null, highestServingQueueNumber:null, lastRefreshedAt:null });
+                setCatalogueState({ loaded:false, refreshing:false, images:[] });
+                location.hash = '#artist-queue';
+                throw new Error('Unauthorized');
+            }
+            if (!res.ok) {
+                let detail = 'Request failed';
+                try { const e = await res.json(); detail = e.message || detail; } catch(_) {}
+                throw new Error(detail);
+            }
+            const ct = res.headers.get('content-type') || '';
+            return ct.includes('application/json') ? res.json() : res.text();
+        }, [sessionReady]);
+
+        const animateRefresh = useCallback(async (type, runner) => {
+            const minSpin = 850;
+            const setRefreshing = type === 'queue' ? setQueueData : setCatalogueState;
+            setRefreshing(prev => ({ ...prev, refreshing:true }));
+            const start = performance.now();
+            try {
+                const result = await runner();
+                const elapsed = performance.now() - start;
+                if (elapsed < minSpin) await new Promise(r => setTimeout(r, minSpin - elapsed));
+                if (type === 'queue') {
+                    return {
+                        loaded:true,
+                        refreshing:false,
+                        entries: result.entries || [],
+                        accessWindowMinutes: result.accessWindowMinutes || 30,
+                        currentTime: result.currentTime,
+                        highestServingQueueNumber: result.highestServingQueueNumber,
+                        lastRefreshedAt: new Date()
+                    };
+                }
+                return result;
+            } finally {
+                setRefreshing(prev => ({ ...prev, refreshing:false }));
+            }
+        }, []);
+
+        const toggleTheme = () => {
+            const next = theme === 'dark' ? 'light' : 'dark';
+            setTheme(next);
+            document.documentElement.setAttribute('data-theme', next);
+            setCookie(CONFIG.THEME_COOKIE, next, 365);
+        };
+
+        const doLogout = async () => {
+            try {
+                await fetch(CONFIG.API_BASE + '/api/logout', { method: 'POST', credentials: 'include' });
+            } catch (_) {}
+            setSessionReady(false);
+            setQueueData({ loaded:false, refreshing:false, entries:[], accessWindowMinutes:30, currentTime:null, highestServingQueueNumber:null, lastRefreshedAt:null });
+            setCatalogueState({ loaded:false, refreshing:false, images:[] });
+            location.hash = '#artist-queue';
+        };
+
+        if (!sessionReady) return <AuthGate onLogin={setSessionReady} />;
+
+        return (
+            <div className="shell">
+                <header className="topbar">
+                    <div className="topbar-row">
+                        <nav className="topbar-nav" aria-label="Artist views">
+                            <a className={`nav-chip ${route === 'artist-queue' ? 'active' : ''}`} href="#artist-queue">Queue management</a>
+                            <a className={`nav-chip ${route === 'artist-catalogue' ? 'active' : ''}`} href="#artist-catalogue">Catalogue management</a>
+                        </nav>
+                        <div className="topbar-actions">
+                            <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
+                                <svg id="themeIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    {theme === 'dark' ? <><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></> : <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>}
+                                </svg>
+                            </button>
+                            <button className="icon-btn" onClick={doLogout} aria-label="Log out" title="Log out">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </header>
+                <main className="page" aria-live="polite">
+                    {route === 'artist-catalogue'
+                        ? <CataloguePage api={api} catalogueState={catalogueState} setCatalogueState={setCatalogueState} animateRefresh={animateRefresh} />
+                        : <QueuePage api={api} queueData={queueData} setQueueData={setQueueData} animateRefresh={animateRefresh} />}
+                </main>
+            </div>
+        );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<AppShell />);
+</script>
+</body>
+</html>
