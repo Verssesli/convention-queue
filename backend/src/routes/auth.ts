@@ -11,6 +11,17 @@ export const ARTIST_PASSWORD_HASH = process.env.ARTIST_PASSWORD_HASH ?? '';
 export const ARTIST_COOKIE_SECURE = process.env.NODE_ENV === 'production';
 export const ARTIST_COOKIE_SAMESITE: 'strict' | 'lax' = 'strict';
 
+// Per-IP login rate limit. Logins are rare (only the artist), so a tight limit is
+// safe even behind shared NAT and it blunts password brute-forcing.
+const LOGIN_RATE_MAX = Number(process.env.LOGIN_RATE_MAX ?? 10);
+const LOGIN_RATE_WINDOW = process.env.LOGIN_RATE_WINDOW ?? '1 minute';
+
+// argon2 here uses ~64 MB per verify. Without a ceiling, many concurrent /api/login
+// requests could allocate gigabytes and OOM the box. Cap how many verifies may run
+// at once; excess requests are rejected fast rather than piling up memory.
+const MAX_CONCURRENT_VERIFIES = Number(process.env.MAX_CONCURRENT_VERIFIES ?? 4);
+let activeVerifies = 0;
+
 // ── Create sessions table if it doesn't exist ──
 db.exec(`
     CREATE TABLE IF NOT EXISTS artist_session (
@@ -60,7 +71,9 @@ export async function requireArtistAuth(req: FastifyRequest, reply: FastifyReply
 }
 
 export function registerArtistAuthRoutes(app: any) {
-    app.post('/api/login', async (req: FastifyRequest, reply: FastifyReply) => {
+    app.post('/api/login', {
+        config: { rateLimit: { max: LOGIN_RATE_MAX, timeWindow: LOGIN_RATE_WINDOW } },
+    }, async (req: FastifyRequest, reply: FastifyReply) => {
         const body = req.body as { password?: string } | undefined;
         const password = String(body?.password ?? '');
 
@@ -68,7 +81,17 @@ export function registerArtistAuthRoutes(app: any) {
             return reply.code(500).send({ message: 'Auth not configured.' });
         }
 
-        const ok = await argon2.verify(ARTIST_PASSWORD_HASH, password);
+        if (activeVerifies >= MAX_CONCURRENT_VERIFIES) {
+            return reply.code(503).send({ message: 'Server busy, please try again.' });
+        }
+
+        let ok: boolean;
+        activeVerifies++;
+        try {
+            ok = await argon2.verify(ARTIST_PASSWORD_HASH, password);
+        } finally {
+            activeVerifies--;
+        }
         if (!ok) {
             return reply.code(401).send({ message: 'Incorrect password.' });
         }

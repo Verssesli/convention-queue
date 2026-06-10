@@ -4,6 +4,31 @@ import db from '../db/database';
 
 let ACCESS_WINDOW_MINUTES = Number(process.env.ACCESS_WINDOW_MINUTES ?? 30);
 
+// ── Abuse / growth bounds ──
+// Hard cap on people *still waiting* (left_queue = 0, not yet allowed). This is
+// the real DoS bound: it's global rather than per-IP, so it can't be defeated
+// by spreading a flood across IPs and — crucially — it doesn't punish the many
+// legitimate attendees who share one convention-WiFi NAT address.
+const MAX_WAITING_ENTRIES = Number(process.env.MAX_WAITING_ENTRIES ?? 2000);
+
+// Per-IP rate limits for the join/requeue write endpoints. Lenient enough that a
+// crowd arriving on the same NAT IP isn't blocked, but it stops a single browser
+// or script from hammering the endpoint. Tune via env if your NAT is very dense.
+const JOIN_RATE_MAX = Number(process.env.JOIN_RATE_MAX ?? 30);
+const JOIN_RATE_WINDOW = process.env.JOIN_RATE_WINDOW ?? '1 minute';
+
+// Pruning — completed/abandoned rows are deleted after this many hours so the
+// table (and the artist payload) can't grow without bound over a multi-day event.
+const PRUNE_RETENTION_HOURS = Number(process.env.PRUNE_RETENTION_HOURS ?? 24);
+const PRUNE_INTERVAL_MINUTES = Number(process.env.PRUNE_INTERVAL_MINUTES ?? 30);
+
+class QueueFullError extends Error {
+    constructor() {
+        super('The queue is currently full. Please try again shortly.');
+        this.name = 'QueueFullError';
+    }
+}
+
 // Cached in memory — only changes when the artist allows users in.
 // Initialised from DB on startup so a server restart doesn't reset it.
 let cachedHighestServing: number | null = (() => {
@@ -37,8 +62,15 @@ function formatEntry(e: QueueEntry) {
     };
 }
 
-// Transaction-wrapped insert — prevents race conditions on concurrent joins
+// Transaction-wrapped insert — prevents race conditions on concurrent joins, and
+// enforces MAX_WAITING_ENTRIES atomically so a flood can't slip past the check.
 const assignNumber = db.transaction((queueId: string, joinedAt: string) => {
+    const waitingRow = db.prepare(
+        `SELECT COUNT(*) AS waiting FROM queue_entry WHERE left_queue = 0 AND allowed_in_at IS NULL`
+    ).get() as { waiting: number };
+    if (waitingRow.waiting >= MAX_WAITING_ENTRIES) {
+        throw new QueueFullError();
+    }
     const maxRow = db.prepare(
         `SELECT MAX(queue_number) AS max_num FROM queue_entry`
     ).get() as { max_num: number | null };
@@ -50,13 +82,52 @@ const assignNumber = db.transaction((queueId: string, joinedAt: string) => {
     return queueNumber;
 });
 
+// Delete completed/abandoned entries older than the retention window. Entries that
+// are still waiting or inside a live access window are always kept. Returns the
+// number of rows removed.
+export function pruneQueue(): number {
+    const cutoff = new Date(Date.now() - PRUNE_RETENTION_HOURS * 3_600_000).toISOString();
+    const result = db.prepare(`
+        DELETE FROM queue_entry
+        WHERE joined_at < ?
+          AND (
+                left_queue = 1
+                OR (expires_at IS NOT NULL AND expires_at < ?)
+              )
+    `).run(cutoff, new Date().toISOString());
+    return result.changes;
+}
+
+// Periodic pruning loop, started once after the server begins listening.
+export function startQueuePruning(log?: { info: (msg: string) => void; error: (err: unknown) => void }) {
+    const tick = () => {
+        try {
+            const removed = pruneQueue();
+            if (removed > 0) log?.info(`Pruned ${removed} stale queue entr${removed === 1 ? 'y' : 'ies'}.`);
+        } catch (err) {
+            log?.error(err);
+        }
+    };
+    tick(); // run once on startup
+    const handle = setInterval(tick, PRUNE_INTERVAL_MINUTES * 60_000);
+    handle.unref?.(); // don't keep the process alive solely for pruning
+    return handle;
+}
+
 export async function queueRoutes(app: FastifyInstance) {
 
     // POST /api/queue/join — create a new queue entry
-    app.post('/api/queue/join', async (_req: FastifyRequest, _reply: FastifyReply) => {
+    app.post('/api/queue/join', {
+        config: { rateLimit: { max: JOIN_RATE_MAX, timeWindow: JOIN_RATE_WINDOW } },
+    }, async (_req: FastifyRequest, reply: FastifyReply) => {
         const queueId = uuidv4();
         const joinedAt = new Date().toISOString();
-        assignNumber(queueId, joinedAt);
+        try {
+            assignNumber(queueId, joinedAt);
+        } catch (err) {
+            if (err instanceof QueueFullError) return reply.status(503).send({ message: err.message });
+            throw err;
+        }
         const entry = db.prepare(`SELECT * FROM queue_entry WHERE queue_id = ?`).get(queueId) as QueueEntry;
         return formatEntry(entry);
     });
@@ -84,17 +155,24 @@ export async function queueRoutes(app: FastifyInstance) {
     });
 
     // POST /api/queue/requeue — leave old entry and create a new one
-    app.post('/api/queue/requeue', async (req: FastifyRequest<{ Body: { queueId: string } }>, reply: FastifyReply) => {
+    app.post('/api/queue/requeue', {
+        config: { rateLimit: { max: JOIN_RATE_MAX, timeWindow: JOIN_RATE_WINDOW } },
+    }, async (req: FastifyRequest<{ Body: { queueId: string } }>, reply: FastifyReply) => {
         const { queueId } = req.body;
         if (!queueId) return reply.status(400).send({ message: 'queueId is required' });
 
         const newId = uuidv4();
         const joinedAt = new Date().toISOString();
 
-        db.transaction(() => {
-            db.prepare(`UPDATE queue_entry SET left_queue = 1 WHERE queue_id = ?`).run(queueId);
-            assignNumber(newId, joinedAt);
-        })();
+        try {
+            db.transaction(() => {
+                db.prepare(`UPDATE queue_entry SET left_queue = 1 WHERE queue_id = ?`).run(queueId);
+                assignNumber(newId, joinedAt);
+            })();
+        } catch (err) {
+            if (err instanceof QueueFullError) return reply.status(503).send({ message: err.message });
+            throw err;
+        }
 
         const entry = db.prepare(`SELECT * FROM queue_entry WHERE queue_id = ?`).get(newId) as QueueEntry;
         return { oldQueueId: queueId, ...formatEntry(entry) };
