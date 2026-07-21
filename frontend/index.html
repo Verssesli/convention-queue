@@ -291,10 +291,22 @@
             clearTimeout(timer);
         }
         if (!res.ok) {
-            let detail = 'Request failed';
-            try { const e = await res.json(); detail = e.message || detail; } catch(_) {}
+            let detail = 'Request failed', code = null;
+            try { const e = await res.json(); detail = e.message || detail; code = e.code || null; } catch(_) {}
+
+            // The scan backing this session is no longer valid — a new event day,
+            // a regenerated QR code, or a cleared cookie. Navigate rather than
+            // rendering our own message: the server owns that page, so this ends up
+            // identical to arriving without a scan, catalogue and all. Note we keep
+            // the queue cookie — their number is still theirs once they rescan.
+            if (res.status === 403 && code === 'NO_QUEUE_ACCESS') {
+                clearTimer();
+                location.replace('/');
+            }
+
             const err = new Error(detail);
             err.status = res.status;
+            err.handled = res.status === 403 && code === 'NO_QUEUE_ACCESS';
             throw err;
         }
         const ct = res.headers.get('content-type') || '';
@@ -496,7 +508,7 @@
             state.lastRefreshedAt = new Date();
             setCookie(CONFIG.QUEUE_COOKIE, data.queueId, 30);
             renderQueuePage();
-        } catch(e) { alert(e.message); }
+        } catch(e) { if (!e.handled) alert(e.message); }
     }
 
     // opts.resume — set only by handleResume(). Puts the page into the "XXX"
@@ -553,7 +565,7 @@
             deleteCookie(CONFIG.QUEUE_COOKIE); state.queueId = null; state.queueStatus = null;
             state.lastRefreshedAt = new Date();
             renderQueuePage();
-        } catch(e) { alert(e.message); }
+        } catch(e) { if (!e.handled) alert(e.message); }
     }
 
     async function doRequeue() {
@@ -565,7 +577,7 @@
             state.lastRefreshedAt = new Date();
             setCookie(CONFIG.QUEUE_COOKIE, data.queueId, 30);
             renderQueuePage();
-        } catch(e) { alert(e.message); }
+        } catch(e) { if (!e.handled) alert(e.message); }
     }
 
     /* ── CATALOGUE PAGE ── */

@@ -11,9 +11,10 @@
             --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
             --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
             --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+            --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
             --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
-            --space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.25rem;
-            --space-6:1.5rem;--space-8:2rem;
+            --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.25rem;
+            --space-6:1.5rem;--space-8:2rem;--space-10:2.5rem;
             --color-bg:#f7f6f2;--color-surface:#f9f8f5;--color-surface-2:#fbfbf9;
             --color-border:#d4d1ca;
             --color-text:#28251d;--color-text-muted:#6c6a64;
@@ -36,16 +37,31 @@
         }
         *{box-sizing:border-box;}
         html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
-        body{margin:0;min-height:100dvh;display:grid;place-items:center;
-            padding:var(--space-4);font-family:var(--font-body);font-size:var(--text-base);
+        /* margin:auto on the flex child centres safely — unlike justify-content,
+           it won't clip the top once the catalogue makes the page taller than the
+           viewport. */
+        body{margin:0;min-height:100dvh;display:flex;
+            padding:calc(env(safe-area-inset-top) + var(--space-5)) var(--space-4)
+                    calc(env(safe-area-inset-bottom) + var(--space-8));
+            font-family:var(--font-body);font-size:var(--text-base);
             background:var(--color-bg);color:var(--color-text);line-height:1.55;}
-        .card{width:min(100%,460px);background:var(--color-surface);
-            border:1px solid var(--color-border);border-radius:var(--radius-xl);
-            box-shadow:var(--shadow-sm);padding:var(--space-6);display:grid;gap:var(--space-5);}
+
+        .layout{margin:auto;width:min(100%,1080px);display:grid;gap:var(--space-5);align-items:start;}
+        /* Side by side once there's genuinely room — this also catches phones held
+           in landscape, which are typically 800px+ wide. Below that it stacks, with
+           the explanation first and the catalogue underneath. */
+        @media (min-width:800px){
+            .layout{grid-template-columns:minmax(320px,400px) minmax(0,1fr);gap:var(--space-6);}
+        }
+
+        .card{background:var(--color-surface);border:1px solid var(--color-border);
+            border-radius:var(--radius-xl);box-shadow:var(--shadow-sm);
+            padding:var(--space-6);display:grid;gap:var(--space-5);}
         .badge{width:3rem;height:3rem;border-radius:var(--radius-lg);display:grid;place-items:center;
             background:var(--color-danger-bg);color:var(--color-danger);}
         .badge svg{width:1.6rem;height:1.6rem;}
         h1{font-family:var(--font-display);font-size:var(--text-xl);letter-spacing:-.03em;margin:0;}
+        h2{font-family:var(--font-display);font-size:var(--text-lg);letter-spacing:-.02em;margin:0;}
         p{margin:0;color:var(--color-text-muted);font-size:var(--text-sm);}
         .steps{display:grid;gap:var(--space-3);background:var(--color-surface-2);
             border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4);}
@@ -55,32 +71,85 @@
             color:var(--color-primary);font-weight:700;font-size:var(--text-xs);}
         .note{font-size:var(--text-xs);color:var(--color-text-muted);
             border-top:1px solid var(--color-border);padding-top:var(--space-4);}
+
+        .catalogue{display:grid;gap:var(--space-4);align-content:start;}
+        .catalogue-head{display:grid;gap:var(--space-1);}
+        .catalogue-stack{display:grid;gap:var(--space-4);}
+        .catalogue-image{width:100%;max-width:720px;margin:0 auto;border-radius:var(--radius-xl);
+            border:1px solid var(--color-border);background:var(--color-surface-2);
+            box-shadow:var(--shadow-sm);overflow:hidden;}
+        .catalogue-image img{width:100%;height:auto;display:block;}
+        .loading-bar{height:.75rem;border-radius:var(--radius-full);
+            background:linear-gradient(90deg,var(--color-border) 20%,var(--color-surface-2) 50%,var(--color-border) 80%);
+            background-size:200% 100%;animation:shimmer 1.5s linear infinite;}
+        @keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+        .hidden{display:none!important;}
+        @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
     </style>
 </head>
 <body>
-<main class="card">
-    <div class="badge" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 9v4"/><path d="M12 17h.01"/>
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-        </svg>
-    </div>
-    <div>
-        <h1>This queue link isn&rsquo;t valid</h1>
-        <p style="margin-top:var(--space-2);">
-            The link you used has expired or isn&rsquo;t recognised, so we can&rsquo;t add you to the line.
-            Queue links can only be joined by scanning the QR code in person.
+<div class="layout">
+    <main class="card">
+        <div class="badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 9v4"/><path d="M12 17h.01"/>
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            </svg>
+        </div>
+        <div>
+            <h1>This queue link isn&rsquo;t valid</h1>
+            <p style="margin-top:var(--space-2);">
+                The link you used has expired or isn&rsquo;t recognised, so we can&rsquo;t add you to the line.
+                Queue links can only be joined by scanning the QR code in person.
+            </p>
+        </div>
+        <div class="steps">
+            <div class="step"><span class="step-num">1</span><span>Head to the artist&rsquo;s table at their booth.</span></div>
+            <div class="step"><span class="step-num">2</span><span>Scan the QR code displayed there with your phone camera.</span></div>
+            <div class="step"><span class="step-num">3</span><span>You&rsquo;ll be given a number and can then watch the queue from your phone.</span></div>
+        </div>
+        <p class="note">
+            Scanned in on an earlier day? A scan is only valid for the day you made it,
+            so you&rsquo;ll need to scan again at the table each day of the event.
         </p>
-    </div>
-    <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>Head to the artist&rsquo;s table at their booth.</span></div>
-        <div class="step"><span class="step-num">2</span><span>Scan the QR code displayed there with your phone camera.</span></div>
-        <div class="step"><span class="step-num">3</span><span>You&rsquo;ll be given a number and can then watch the queue from your phone.</span></div>
-    </div>
-    <p class="note">
-        Scanned in on an earlier day? A scan is only valid for the day you made it,
-        so you&rsquo;ll need to scan again at the table each day of the event.
-    </p>
-</main>
+    </main>
+
+    <!-- Hidden until we know there's something to show: an empty gallery on an
+         error page is just noise. -->
+    <aside class="catalogue hidden" id="catalogue">
+        <div class="catalogue-head">
+            <h2>While you&rsquo;re here</h2>
+            <p>Browse what&rsquo;s available at the booth.</p>
+        </div>
+        <div class="catalogue-stack" id="catImages"><div class="loading-bar"></div></div>
+    </aside>
+</div>
+<script>
+    (function () {
+        var section = document.getElementById('catalogue');
+        var target = document.getElementById('catImages');
+
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // The catalogue is public, so it loads fine without a valid scan.
+        fetch('/api/catalogue', { headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                var images = (data && data.images) ? data.images.slice() : [];
+                if (!images.length) return;
+                images.sort(function (a, b) { return a.order - b.order; });
+                target.innerHTML = images.map(function (img, i) {
+                    return '<figure class="catalogue-image">' +
+                        '<img src="' + esc(img.imageUrl) + '" alt="Catalogue item ' + (i + 1) +
+                        '" loading="lazy" decoding="async"></figure>';
+                }).join('');
+                section.classList.remove('hidden');
+            })
+            .catch(function () { /* leave the section hidden — the error is the point of this page */ });
+    })();
+</script>
 </body>
 </html>

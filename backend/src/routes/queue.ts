@@ -4,6 +4,9 @@ import db from '../db/database';
 import { hasQueueAccess } from './access';
 
 const NO_ACCESS_MESSAGE = 'Please scan the QR code at the artist\'s table to join the queue.';
+// Machine-readable so the client can tell "your scan is no longer valid" apart
+// from any other 403 and hand the user over to the server's error page.
+const NO_ACCESS_CODE = 'NO_QUEUE_ACCESS';
 
 let ACCESS_WINDOW_MINUTES = Number(process.env.ACCESS_WINDOW_MINUTES ?? 30);
 
@@ -125,7 +128,7 @@ export async function queueRoutes(app: FastifyInstance) {
     }, async (req: FastifyRequest, reply: FastifyReply) => {
         // Gating the page alone would be cosmetic — the endpoint is what actually
         // creates entries, so it has to check too.
-        if (!hasQueueAccess(req)) return reply.status(403).send({ message: NO_ACCESS_MESSAGE });
+        if (!hasQueueAccess(req)) return reply.status(403).send({ code: NO_ACCESS_CODE, message: NO_ACCESS_MESSAGE });
 
         const queueId = uuidv4();
         const joinedAt = new Date().toISOString();
@@ -165,7 +168,7 @@ export async function queueRoutes(app: FastifyInstance) {
     app.post('/api/queue/requeue', {
         config: { rateLimit: { max: JOIN_RATE_MAX, timeWindow: JOIN_RATE_WINDOW } },
     }, async (req: FastifyRequest<{ Body: { queueId: string } }>, reply: FastifyReply) => {
-        if (!hasQueueAccess(req)) return reply.status(403).send({ message: NO_ACCESS_MESSAGE });
+        if (!hasQueueAccess(req)) return reply.status(403).send({ code: NO_ACCESS_CODE, message: NO_ACCESS_MESSAGE });
 
         const { queueId } = req.body;
         if (!queueId) return reply.status(400).send({ message: 'queueId is required' });
