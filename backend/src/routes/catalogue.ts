@@ -9,6 +9,9 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const UPLOAD_BASE_URL = process.env.UPLOAD_BASE_URL ?? '/uploads';
 
+const UPLOAD_RATE_MAX = Number(process.env.UPLOAD_RATE_MAX ?? 20);
+const UPLOAD_RATE_WINDOW = process.env.UPLOAD_RATE_WINDOW ?? '1 minute';
+
 interface CatalogueImage {
     image_key: string;
     image_url: string;
@@ -41,7 +44,13 @@ export async function catalogueReadRoutes(app: FastifyInstance) {
 export async function catalogueWriteRoutes(app: FastifyInstance) {
 
     // POST /api/catalogue/upload
-    app.post('/api/catalogue/upload', async (req: FastifyRequest, reply: FastifyReply) => {
+    // The only endpoints that accept a large body, so they're the only ones worth
+    // flooding. The limit is per-IP and far above real use — an artist adds a
+    // handful of images at a time — but caps how fast a stolen session, or anyone
+    // probing the endpoint, can make the server take delivery of big payloads.
+    app.post('/api/catalogue/upload', {
+        config: { rateLimit: { max: UPLOAD_RATE_MAX, timeWindow: UPLOAD_RATE_WINDOW } },
+    }, async (req: FastifyRequest, reply: FastifyReply) => {
         const data = await req.file();
         if (!data) return reply.status(400).send({ message: 'No file provided' });
 
@@ -57,7 +66,9 @@ export async function catalogueWriteRoutes(app: FastifyInstance) {
     });
 
     // PUT /api/catalogue/replace
-    app.put('/api/catalogue/replace', async (req: FastifyRequest, reply: FastifyReply) => {
+    app.put('/api/catalogue/replace', {
+        config: { rateLimit: { max: UPLOAD_RATE_MAX, timeWindow: UPLOAD_RATE_WINDOW } },
+    }, async (req: FastifyRequest, reply: FastifyReply) => {
         const parts = req.parts();
         let imageKey = '';
         let fileBuffer: Buffer | null = null;

@@ -28,6 +28,12 @@ const app = Fastify({
     // loopback address and every user would share one rate-limit bucket. Default
     // 'loopback' trusts only the local proxy and is also safe when run directly.
     trustProxy: process.env.TRUST_PROXY ?? 'loopback',
+    // Caps non-multipart bodies. Fastify defaults to 1MB, but the largest honest
+    // JSON here is a catalogue reorder — a few dozen bytes per image — so 1MB is
+    // ~50x more than anything legitimate and just gives an attacker a bigger
+    // buffer to fill. File uploads are unaffected: @fastify/multipart streams via
+    // its own content-type parser and enforces MAX_UPLOAD_MB separately.
+    bodyLimit: Number(process.env.JSON_BODY_LIMIT_BYTES ?? 64 * 1024),
     logger: process.env.NODE_ENV === 'production'
         ? { level: 'warn' }
         : true,
@@ -80,7 +86,23 @@ async function start() {
     // Anyone arriving at the bare domain, or on a stale/guessed hash, gets the
     // "invalid link" page instead of the app. Registered after @fastify/cookie so
     // req.cookies is already parsed by the time this runs.
-    const readFrontend = (name: string) => fs.readFileSync(path.join(FRONTEND_DIR, name), 'utf8');
+    // Cached in production. These are served on every rejected request, and a
+    // readFileSync per request is a synchronous disk read blocking the one event
+    // loop — cheap to trigger, disproportionately expensive to serve, which is
+    // precisely what a flood of bad URLs would exploit. Re-read every time outside
+    // production so editing the HTML doesn't need a restart.
+    const htmlCache = new Map<string, string>();
+    const readFrontend = (name: string): string => {
+        if (process.env.NODE_ENV !== 'production') {
+            return fs.readFileSync(path.join(FRONTEND_DIR, name), 'utf8');
+        }
+        let cached = htmlCache.get(name);
+        if (cached === undefined) {
+            cached = fs.readFileSync(path.join(FRONTEND_DIR, name), 'utf8');
+            htmlCache.set(name, cached);
+        }
+        return cached;
+    };
     const ALWAYS_ALLOWED = new Set(['/artist', '/artist.html', '/invalid.html', '/favicon.ico', '/robots.txt']);
     const ALLOWED_PREFIXES = ['/api/', '/uploads/'];
     // A single path segment of hash-shaped characters, e.g. /djioa
@@ -123,18 +145,23 @@ async function start() {
     await app.register(queueRoutes);
     await app.register(catalogueReadRoutes);
 
+    // Auth runs at onRequest, not preHandler. Fastify parses and size-checks the
+    // body *before* preHandler, so with auth there an anonymous caller could make
+    // the server ingest a full body on every artist endpoint and only then be told
+    // 401 — the rejection cost nothing to send but everything to reach. At
+    // onRequest the 401 lands before a single byte of body is read.
     await app.register(async (instance) => {
-        instance.addHook('preHandler', requireArtistAuth);
+        instance.addHook('onRequest', requireArtistAuth);
         await artistQueueRoutes(instance);
     });
 
     await app.register(async (instance) => {
-        instance.addHook('preHandler', requireArtistAuth);
+        instance.addHook('onRequest', requireArtistAuth);
         await catalogueWriteRoutes(instance);
     });
 
     await app.register(async (instance) => {
-        instance.addHook('preHandler', requireArtistAuth);
+        instance.addHook('onRequest', requireArtistAuth);
         await artistAccessRoutes(instance);
     });
 
