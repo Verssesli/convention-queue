@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Convention Queue</title>
+    <script>
+        // Strip the access hash out of the address bar the instant the page starts
+        // parsing, before anything is rendered or is screenshot-able. replaceState
+        // rewrites the current history entry in place rather than navigating, so
+        // there is no previous entry holding the secret for "back" to return to,
+        // and no redirect round-trip. The #route fragment is preserved.
+        (function () {
+            try {
+                if (location.pathname !== '/') {
+                    history.replaceState(null, '', '/' + (location.hash || ''));
+                }
+            } catch (_) { /* non-fatal: the page still works, the URL just stays put */ }
+        })();
+    </script>
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@500,700&display=swap" rel="stylesheet">
     <style>
         :root, [data-theme="light"] {

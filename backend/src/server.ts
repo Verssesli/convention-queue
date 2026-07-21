@@ -7,33 +7,14 @@ import staticFiles from '@fastify/static';
 import rateLimit from '@fastify/rate-limit';
 import path from 'path';
 
-import db from './db/database';
+import fs from 'fs';
+
 import { queueRoutes, artistQueueRoutes, startQueuePruning } from './routes/queue';
 import { catalogueReadRoutes, catalogueWriteRoutes } from './routes/catalogue';
 import { registerArtistAuthRoutes, requireArtistAuth } from './routes/auth';
+import { artistAccessRoutes, grantQueueAccess, hasQueueAccess, matchesAccessHash } from './routes/access';
 
-// ── Run migration on startup ──
-db.exec(`
-CREATE TABLE IF NOT EXISTS queue_entry (
-queue_id TEXT PRIMARY KEY,
-queue_number INTEGER NOT NULL,
-joined_at TEXT NOT NULL,
-allowed_in_at TEXT,
-expires_at TEXT,
-left_queue INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS catalogue_image (
-image_key TEXT PRIMARY KEY,
-image_url TEXT NOT NULL,
-image_order INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_queue_number ON queue_entry(queue_number);
-CREATE INDEX IF NOT EXISTS idx_queue_waiting ON queue_entry(allowed_in_at, left_queue, queue_number);
-`);
-
-
+// Schema is created in db/database.ts — see the note there on import ordering.
 
 const HOST = process.env.HOST ?? '0.0.0.0';
 const PORT = Number(process.env.PORT ?? 3000);
@@ -89,6 +70,49 @@ async function start() {
         index: 'index.html',
     });
 
+    // ── Attendee access gate ──
+    // The queue is only joinable by scanning the QR code at the artist's table.
+    // Anyone arriving at the bare domain, or on a stale/guessed hash, gets the
+    // "invalid link" page instead of the app. Registered after @fastify/cookie so
+    // req.cookies is already parsed by the time this runs.
+    const readFrontend = (name: string) => fs.readFileSync(path.join(FRONTEND_DIR, name), 'utf8');
+    const ALWAYS_ALLOWED = new Set(['/artist', '/artist.html', '/invalid.html', '/favicon.ico', '/robots.txt']);
+    const ALLOWED_PREFIXES = ['/api/', '/uploads/'];
+    // A single path segment of hash-shaped characters, e.g. /djioa
+    const HASH_PATH = /^\/([A-Za-z0-9_-]{4,64})\/?$/;
+
+    const sendApp = (reply: any) => reply.code(200).type('text/html; charset=utf-8').send(readFrontend('index.html'));
+    const sendInvalid = (reply: any) => reply.code(403).type('text/html; charset=utf-8').send(readFrontend('invalid.html'));
+
+    app.addHook('onRequest', async (req, reply) => {
+        const url = (req.raw.url ?? '/').split('?')[0];
+
+        if (ALWAYS_ALLOWED.has(url)) return;
+        if (ALLOWED_PREFIXES.some(p => url.startsWith(p))) return;
+
+        const isRoot = url === '/' || url === '/index.html';
+        const hashMatch = url.match(HASH_PATH);
+
+        if (hashMatch) {
+            // Arriving via a QR link. A valid hash mints the access cookie and the
+            // app is served straight from this URL — no redirect, so there's no
+            // history entry pointing at the secret for anyone to go "back" to.
+            // The page itself then scrubs the hash out of the address bar.
+            if (matchesAccessHash(hashMatch[1])) {
+                grantQueueAccess(reply);
+                return sendApp(reply);
+            }
+            return sendInvalid(reply);
+        }
+
+        if (isRoot) {
+            return hasQueueAccess(req) ? undefined : sendInvalid(reply);
+        }
+
+        // Anything else falls through to the static handler (and its 404).
+        return;
+    });
+
     registerArtistAuthRoutes(app);
 
     await app.register(queueRoutes);
@@ -102,6 +126,11 @@ async function start() {
     await app.register(async (instance) => {
         instance.addHook('preHandler', requireArtistAuth);
         await catalogueWriteRoutes(instance);
+    });
+
+    await app.register(async (instance) => {
+        instance.addHook('preHandler', requireArtistAuth);
+        await artistAccessRoutes(instance);
     });
 
     app.get('/artist', async (_req, reply) => {

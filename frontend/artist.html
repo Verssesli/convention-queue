@@ -135,6 +135,30 @@
         .number-pad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-3);}
         .pad-key{min-height:64px;border:1px solid var(--color-border);border-radius:var(--radius-lg);background:var(--color-surface-2);font-weight:700;font-size:var(--text-lg);cursor:pointer;}
         .pad-key.action{font-size:var(--text-sm);}
+        /* ── QR page ── */
+        .qr-layout{display:grid;gap:var(--space-4);align-items:start;}
+        @media(min-width:760px){.qr-layout{grid-template-columns:minmax(0,auto) minmax(280px,1fr);}}
+        /* Always light behind the code: a QR needs dark-on-light contrast to scan
+           reliably, so this frame must not follow the dark theme. */
+        .qr-frame{background:#fff;border:1px solid var(--color-border);border-radius:var(--radius-xl);
+            padding:var(--space-4);display:grid;place-items:center;box-shadow:var(--shadow-sm);}
+        .qr-frame img{display:block;width:min(100%,300px);height:auto;image-rendering:pixelated;}
+        .link-box{display:flex;align-items:center;gap:var(--space-2);background:var(--color-surface-2);
+            border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-3) var(--space-4);}
+        .link-text{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-sm);
+            word-break:break-all;flex:1;min-width:0;}
+        .btn-sm{min-height:38px;padding:0 var(--space-4);font-size:var(--text-xs);}
+        .danger-zone{border:1px dashed var(--color-danger);border-radius:var(--radius-xl);
+            background:color-mix(in srgb,var(--color-danger-bg) 8%,var(--color-surface));
+            padding:var(--space-4);display:grid;gap:var(--space-3);}
+        .toast{position:fixed;left:50%;transform:translateX(-50%);
+            bottom:calc(var(--space-6) + env(safe-area-inset-bottom));z-index:80;
+            background:var(--color-text);color:var(--color-bg);border-radius:var(--radius-full);
+            padding:var(--space-3) var(--space-5);font-size:var(--text-sm);font-weight:700;
+            box-shadow:var(--shadow-md);max-width:calc(100% - var(--space-8));text-align:center;}
+        .warn-box{background:var(--color-danger-bg);border-radius:var(--radius-lg);
+            padding:var(--space-4);display:grid;gap:var(--space-2);}
+        .warn-list{margin:0;padding-left:1.1rem;font-size:var(--text-sm);display:grid;gap:var(--space-1);}
         .queue-list::-webkit-scrollbar{width:10px;height:10px;}
         .queue-list::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--color-border) 82%,transparent);border-radius:999px;}
         @media(min-width:760px){
@@ -165,7 +189,7 @@
     const CONFIG = {
         API_BASE: '',
         THEME_COOKIE: 'con_theme_artist',
-        AUTO_REFRESH_MS: 60000,
+        AUTO_REFRESH_MS: 15000,
         // Collapses the burst of resume events into a single reload.
         RESUME_STALE_MS: 5000,
     };
@@ -239,6 +263,179 @@
                     </div>
                 </div>
             </div>
+        );
+    }
+
+    function ConfirmModal({ open, title, subtitle, confirmLabel, busy, onClose, onConfirm, children }) {
+        useEffect(() => {
+            if (!open) return;
+            const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose(); };
+            window.addEventListener('keydown', onKey);
+            return () => window.removeEventListener('keydown', onKey);
+        }, [open, onClose, busy]);
+        if (!open) return null;
+        return (
+            <div className="modal-backdrop" onClick={() => !busy && onClose()} role="presentation">
+                <div className="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" onClick={e => e.stopPropagation()}>
+                    <div className="modal-header">
+                        <div>
+                            <h2 className="modal-title" id="confirmTitle">{title}</h2>
+                            {subtitle ? <p className="subtle">{subtitle}</p> : null}
+                        </div>
+                        <button className="icon-btn" onClick={onClose} disabled={busy} aria-label="Close">×</button>
+                    </div>
+                    {children}
+                    <div className="modal-actions">
+                        <button className="btn btn-secondary" onClick={onClose} disabled={busy} type="button">Cancel</button>
+                        <button className="btn btn-danger" onClick={onConfirm} disabled={busy} type="button">
+                            {busy ? 'Working…' : confirmLabel}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    function QrPage({ api }) {
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [confirmOpen, setConfirmOpen] = useState(false);
+        const [busy, setBusy] = useState(false);
+        const [toast, setToast] = useState('');
+        const toastTimer = useRef(null);
+
+        const flash = useCallback((msg) => {
+            setToast(msg);
+            clearTimeout(toastTimer.current);
+            toastTimer.current = setTimeout(() => setToast(''), 2600);
+        }, []);
+        useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+        const load = useCallback(async () => {
+            try { setData(await api('/api/artist/qr')); }
+            catch (e) { flash(e.message || 'Could not load the QR code.'); }
+            finally { setLoading(false); }
+        }, [api, flash]);
+
+        useEffect(() => { load(); }, [load]);
+
+        const downloadPng = () => {
+            const a = document.createElement('a');
+            a.href = data.qrDataUrl;
+            a.download = `queue-qr-${data.hash}.png`;
+            document.body.appendChild(a); a.click(); a.remove();
+        };
+
+        const copyImage = async () => {
+            try {
+                if (typeof ClipboardItem === 'undefined' || !navigator.clipboard || !navigator.clipboard.write) {
+                    throw new Error('unsupported');
+                }
+                // Hand ClipboardItem the *promise* rather than an awaited blob: Safari
+                // discards the clipboard write if the user gesture has already ended,
+                // which awaiting the fetch first would cause.
+                await navigator.clipboard.write([
+                    new ClipboardItem({ 'image/png': fetch(data.qrDataUrl).then(r => r.blob()) })
+                ]);
+                flash('QR image copied to clipboard.');
+            } catch (_) {
+                flash('This browser won\'t allow copying images — use Download instead.');
+            }
+        };
+
+        const copyLink = async () => {
+            try {
+                await navigator.clipboard.writeText(data.url);
+                flash('Link copied to clipboard.');
+            } catch (_) {
+                flash('Couldn\'t copy — select the link and copy it manually.');
+            }
+        };
+
+        const regenerate = async () => {
+            setBusy(true);
+            try {
+                setData(await api('/api/artist/qr/regenerate', { method: 'POST' }));
+                setConfirmOpen(false);
+                flash('New QR code generated. Replace the printed code at your table.');
+            } catch (e) {
+                flash(e.message || 'Could not regenerate the QR code.');
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        if (loading) return <section className="stack"><div className="notice">Loading QR code…</div></section>;
+        if (!data) return <section className="stack"><div className="empty">Could not load the QR code. Try refreshing.</div></section>;
+
+        return (
+            <section className="stack">
+                <div className="card stack">
+                    <h1 className="page-title">Queue QR code</h1>
+                    <p className="subtle">
+                        Print this and put it on your table. Scanning it is the only way for someone to
+                        join the queue — anyone who opens the site directly is turned away.
+                    </p>
+                </div>
+
+                <div className="card qr-layout">
+                    <div className="qr-frame">
+                        <img src={data.qrDataUrl} alt="QR code linking to the queue" />
+                    </div>
+                    <div className="stack">
+                        <div>
+                            <div className="eyebrow">Scannable code</div>
+                            <div className="btn-row" style={{ marginTop: 'var(--space-3)' }}>
+                                <button className="btn btn-primary" onClick={downloadPng}>Download PNG</button>
+                                <button className="btn btn-secondary" onClick={copyImage}>Copy image</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div className="eyebrow">Direct link</div>
+                            <div className="link-box" style={{ marginTop: 'var(--space-3)' }}>
+                                <span className="link-text">{data.url}</span>
+                                <button className="btn btn-secondary btn-sm" onClick={copyLink}>Copy</button>
+                            </div>
+                            <p className="micro" style={{ marginTop: 'var(--space-2)' }}>
+                                Treat this like a key. Anyone who has it can join without visiting your table.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="danger-zone">
+                    <div>
+                        <h2 className="section-title" style={{ color: 'var(--color-danger)', fontSize: 'var(--text-sm)', fontWeight: 700 }}>
+                            Regenerate code
+                        </h2>
+                        <p className="micro">Creates a new code and permanently breaks the current one.</p>
+                    </div>
+                    <button className="btn btn-danger" onClick={() => setConfirmOpen(true)} style={{ minHeight: '44px' }}>
+                        Regenerate QR code
+                    </button>
+                </div>
+
+                <ConfirmModal
+                    open={confirmOpen}
+                    title="Regenerate QR code?"
+                    subtitle="This cannot be undone."
+                    confirmLabel="Yes, regenerate"
+                    busy={busy}
+                    onClose={() => setConfirmOpen(false)}
+                    onConfirm={regenerate}
+                >
+                    <div className="warn-box">
+                        <strong style={{ color: 'var(--color-danger)' }}>Every existing QR code stops working immediately.</strong>
+                        <ul className="warn-list">
+                            <li>Any printed or shared copy of the current code becomes invalid.</li>
+                            <li>You must print and display the new code before anyone else can join.</li>
+                            <li>People already in the queue keep their spot and are not affected.</li>
+                        </ul>
+                    </div>
+                </ConfirmModal>
+
+                {toast ? <div className="toast" role="status" aria-live="polite">{toast}</div> : null}
+            </section>
         );
     }
 
@@ -622,7 +819,7 @@
         useEffect(() => {
             if (!sessionReady) return;
             const timer = setInterval(() => {
-                if (getRoute() === 'artist-catalogue') return;
+                if (getRoute() !== 'artist-queue') return;
                 animateRefresh('queue', () => api('/api/artist/queue')).then(data => setQueueData(data)).catch(() => {});
             }, CONFIG.AUTO_REFRESH_MS);
             return () => clearInterval(timer);
@@ -636,7 +833,7 @@
             if (!sessionReady) return;
             const onResume = () => {
                 if (document.visibilityState !== 'visible') return;
-                if (getRoute() === 'artist-catalogue') return;
+                if (getRoute() !== 'artist-queue') return;
                 // Several of these events fire together on a single resume.
                 if (Date.now() - lastResumeRef.current < CONFIG.RESUME_STALE_MS) return;
                 lastResumeRef.current = Date.now();
@@ -727,6 +924,7 @@
                         <nav className="topbar-nav" aria-label="Artist views">
                             <a className={`nav-chip ${route === 'artist-queue' ? 'active' : ''}`} href="#artist-queue">Queue management</a>
                             <a className={`nav-chip ${route === 'artist-catalogue' ? 'active' : ''}`} href="#artist-catalogue">Catalogue management</a>
+                            <a className={`nav-chip ${route === 'artist-qr' ? 'active' : ''}`} href="#artist-qr">QR code</a>
                         </nav>
                         <div className="topbar-actions">
                             <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
@@ -745,7 +943,9 @@
                 <main className="page" aria-live="polite">
                     {route === 'artist-catalogue'
                         ? <CataloguePage api={api} catalogueState={catalogueState} setCatalogueState={setCatalogueState} animateRefresh={animateRefresh} />
-                        : <QueuePage api={api} queueData={queueData} setQueueData={setQueueData} animateRefresh={animateRefresh} />}
+                        : route === 'artist-qr'
+                            ? <QrPage api={api} />
+                            : <QueuePage api={api} queueData={queueData} setQueueData={setQueueData} animateRefresh={animateRefresh} />}
                 </main>
             </div>
         );

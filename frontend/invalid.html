@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Queue unavailable</title>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@500,700&display=swap" rel="stylesheet">
+    <style>
+        :root, [data-theme="light"] {
+            --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+            --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+            --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+            --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+            --space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.25rem;
+            --space-6:1.5rem;--space-8:2rem;
+            --color-bg:#f7f6f2;--color-surface:#f9f8f5;--color-surface-2:#fbfbf9;
+            --color-border:#d4d1ca;
+            --color-text:#28251d;--color-text-muted:#6c6a64;
+            --color-primary:#01696f;--color-primary-highlight:#dcebea;
+            --color-danger:#991828;--color-danger-bg:#fcc;
+            --radius-lg:1rem;--radius-xl:1.25rem;--radius-full:9999px;
+            --shadow-sm:0 1px 2px rgba(26,24,19,.06);
+            --font-body:'Satoshi',Inter,sans-serif;
+            --font-display:'Cabinet Grotesk','Satoshi',sans-serif;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --color-bg:#171614;--color-surface:#1c1b19;--color-surface-2:#201f1d;
+                --color-border:#3a3836;
+                --color-text:#ece9e3;--color-text-muted:#b6b2aa;
+                --color-primary:#5ea8b2;--color-primary-highlight:rgba(94,168,178,.14);
+                --color-danger:#ff8c95;--color-danger-bg:#2e0a0f;
+                --shadow-sm:0 1px 2px rgba(0,0,0,.22);
+            }
+        }
+        *{box-sizing:border-box;}
+        html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+        body{margin:0;min-height:100dvh;display:grid;place-items:center;
+            padding:var(--space-4);font-family:var(--font-body);font-size:var(--text-base);
+            background:var(--color-bg);color:var(--color-text);line-height:1.55;}
+        .card{width:min(100%,460px);background:var(--color-surface);
+            border:1px solid var(--color-border);border-radius:var(--radius-xl);
+            box-shadow:var(--shadow-sm);padding:var(--space-6);display:grid;gap:var(--space-5);}
+        .badge{width:3rem;height:3rem;border-radius:var(--radius-lg);display:grid;place-items:center;
+            background:var(--color-danger-bg);color:var(--color-danger);}
+        .badge svg{width:1.6rem;height:1.6rem;}
+        h1{font-family:var(--font-display);font-size:var(--text-xl);letter-spacing:-.03em;margin:0;}
+        p{margin:0;color:var(--color-text-muted);font-size:var(--text-sm);}
+        .steps{display:grid;gap:var(--space-3);background:var(--color-surface-2);
+            border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4);}
+        .step{display:flex;gap:var(--space-3);align-items:flex-start;font-size:var(--text-sm);}
+        .step-num{flex:none;width:1.6rem;height:1.6rem;border-radius:var(--radius-full);
+            display:grid;place-items:center;background:var(--color-primary-highlight);
+            color:var(--color-primary);font-weight:700;font-size:var(--text-xs);}
+        .note{font-size:var(--text-xs);color:var(--color-text-muted);
+            border-top:1px solid var(--color-border);padding-top:var(--space-4);}
+    </style>
+</head>
+<body>
+<main class="card">
+    <div class="badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 9v4"/><path d="M12 17h.01"/>
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        </svg>
+    </div>
+    <div>
+        <h1>This queue link isn&rsquo;t valid</h1>
+        <p style="margin-top:var(--space-2);">
+            The link you used has expired or isn&rsquo;t recognised, so we can&rsquo;t add you to the line.
+            Queue links can only be joined by scanning the QR code in person.
+        </p>
+    </div>
+    <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>Head to the artist&rsquo;s table at their booth.</span></div>
+        <div class="step"><span class="step-num">2</span><span>Scan the QR code displayed there with your phone camera.</span></div>
+        <div class="step"><span class="step-num">3</span><span>You&rsquo;ll be given a number and can then watch the queue from your phone.</span></div>
+    </div>
+    <p class="note">
+        Already scanned in earlier and seeing this? Your access may have expired &mdash;
+        scan the code at the table again to pick up where you left off.
+    </p>
+</main>
+</body>
+</html>

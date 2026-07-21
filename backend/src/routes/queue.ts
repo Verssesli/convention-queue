@@ -1,6 +1,9 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/database';
+import { hasQueueAccess } from './access';
+
+const NO_ACCESS_MESSAGE = 'Please scan the QR code at the artist\'s table to join the queue.';
 
 let ACCESS_WINDOW_MINUTES = Number(process.env.ACCESS_WINDOW_MINUTES ?? 30);
 
@@ -119,7 +122,11 @@ export async function queueRoutes(app: FastifyInstance) {
     // POST /api/queue/join — create a new queue entry
     app.post('/api/queue/join', {
         config: { rateLimit: { max: JOIN_RATE_MAX, timeWindow: JOIN_RATE_WINDOW } },
-    }, async (_req: FastifyRequest, reply: FastifyReply) => {
+    }, async (req: FastifyRequest, reply: FastifyReply) => {
+        // Gating the page alone would be cosmetic — the endpoint is what actually
+        // creates entries, so it has to check too.
+        if (!hasQueueAccess(req)) return reply.status(403).send({ message: NO_ACCESS_MESSAGE });
+
         const queueId = uuidv4();
         const joinedAt = new Date().toISOString();
         try {
@@ -158,6 +165,8 @@ export async function queueRoutes(app: FastifyInstance) {
     app.post('/api/queue/requeue', {
         config: { rateLimit: { max: JOIN_RATE_MAX, timeWindow: JOIN_RATE_WINDOW } },
     }, async (req: FastifyRequest<{ Body: { queueId: string } }>, reply: FastifyReply) => {
+        if (!hasQueueAccess(req)) return reply.status(403).send({ message: NO_ACCESS_MESSAGE });
+
         const { queueId } = req.body;
         if (!queueId) return reply.status(400).send({ message: 'queueId is required' });
 

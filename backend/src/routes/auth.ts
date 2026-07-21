@@ -3,13 +3,23 @@ import crypto from 'crypto';
 import argon2 from 'argon2';
 import db from '../db/database';
 
-export const ARTIST_COOKIE_NAME = process.env.ARTIST_COOKIE_NAME ?? (
-    process.env.NODE_ENV === 'production' ? '__Host-artist_session' : 'artist_session'
-);
+// Cookie name. Deliberately NOT the "__Host-" prefix by default: browsers discard
+// a __Host- cookie *silently* unless every requirement holds exactly (Secure +
+// Path=/ + no Domain + secure origin). Behind a reverse proxy that produces a
+// login which returns 200 and then 401s on the very next request, with nothing in
+// any log to explain it. Opt back in via ARTIST_COOKIE_NAME=__Host-artist_session
+// once you've confirmed the deployment is end-to-end HTTPS.
+export const ARTIST_COOKIE_NAME = process.env.ARTIST_COOKIE_NAME ?? 'artist_session';
 export const ARTIST_SESSION_TTL_SECONDS = Number(process.env.ARTIST_SESSION_TTL_SECONDS ?? 60 * 60 * 12);
 export const ARTIST_PASSWORD_HASH = process.env.ARTIST_PASSWORD_HASH ?? '';
-export const ARTIST_COOKIE_SECURE = process.env.NODE_ENV === 'production';
-export const ARTIST_COOKIE_SAMESITE: 'strict' | 'lax' = 'strict';
+// Secure defaults on in production but can be forced off for a plain-HTTP host.
+export const ARTIST_COOKIE_SECURE =
+    (process.env.ARTIST_COOKIE_SECURE ?? (process.env.NODE_ENV === 'production' ? 'true' : 'false')) === 'true';
+// 'lax' rather than 'strict': strict buys nothing here (every state-changing call
+// is a same-origin fetch) and is a common cause of cookies going missing after an
+// external navigation or redirect.
+export const ARTIST_COOKIE_SAMESITE =
+    (process.env.ARTIST_COOKIE_SAMESITE ?? 'lax') as 'strict' | 'lax' | 'none';
 
 // Per-IP login rate limit. Logins are rare (only the artist), so a tight limit is
 // safe even behind shared NAT and it blunts password brute-forcing.
@@ -66,6 +76,18 @@ export function isArtistAuthed(req: FastifyRequest): boolean {
 
 export async function requireArtistAuth(req: FastifyRequest, reply: FastifyReply) {
     if (!isArtistAuthed(req)) {
+        // Log *why* at warn level so it surfaces in production. This distinguishes
+        // the two failure modes that look identical from the browser: the cookie
+        // never came back (browser refused to store it — check Secure/SameSite and
+        // that the site is HTTPS end to end) versus the cookie arrived but its
+        // session is gone (expired, or the DB was reset). Names only, no values.
+        const names = Object.keys((req as any).cookies ?? {});
+        req.log.warn(
+            { cookiesReceived: names, expecting: ARTIST_COOKIE_NAME, hasSessionCookie: names.includes(ARTIST_COOKIE_NAME) },
+            names.includes(ARTIST_COOKIE_NAME)
+                ? 'Artist auth failed: session cookie present but not valid (expired or unknown session).'
+                : 'Artist auth failed: no session cookie sent by the browser — it likely refused to store it.'
+        );
         return reply.code(401).send({ message: 'Unauthorized' });
     }
 }
