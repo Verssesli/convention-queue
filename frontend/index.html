@@ -39,6 +39,7 @@
             --color-primary-highlight:#dcebea;
             --color-success:#157a35;--color-success-bg:#b8efca;
             --color-danger:#991828;--color-danger-bg:#fcc;
+            --color-warning:#7a5600;--color-warning-bg:#fbe6a2;
 
             --color-waiting:#8a8882;--color-waiting-bg:#ece9e4;
             --radius-sm:.5rem;--radius-md:.75rem;--radius-lg:1rem;
@@ -58,6 +59,7 @@
             --color-primary-highlight:rgba(94,168,178,.14);
             --color-success:#70d68d;--color-success-bg:#0a2e14;
             --color-danger:#ff8c95;--color-danger-bg:#2e0a0f;
+            --color-warning:#f2cd5c;--color-warning-bg:#2f2606;
             --color-waiting:#bdb7ac;--color-waiting-bg:rgba(130,124,112,.24);
             --shadow-sm:0 1px 2px rgba(0,0,0,.22);--shadow-md:0 8px 24px rgba(0,0,0,.35);
         }
@@ -125,6 +127,9 @@
         .pill.waiting{background:var(--color-waiting-bg);color:var(--color-waiting);}
         .pill.allowed{background:var(--color-success-bg);color:color-mix(in srgb,var(--color-success) 85%,black);}
         .pill.expired{background:var(--color-danger-bg);color:var(--color-danger);}
+        .pill.offline{background:var(--color-warning-bg);color:color-mix(in srgb,var(--color-warning) 88%,black);}
+        [data-theme="dark"] .pill.offline{color:var(--color-warning);}
+        .pill.offline svg{width:1.05em;height:1.05em;flex:none;}
 
         .meta-grid{display:grid;gap:var(--space-3);grid-template-columns:repeat(2,minmax(0,1fr));margin-top:var(--space-2);}
         .meta{background:var(--color-surface-2);border:1px solid var(--color-border);
@@ -154,6 +159,7 @@
         body.state-allowed{background:var(--color-success-bg);}
         body.state-expired{background:var(--color-danger-bg);}
         body.state-error{background:var(--color-danger-bg);}
+        body.state-offline{background:var(--color-warning-bg);}
         @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
     </style>
 </head>
@@ -305,10 +311,19 @@
     }
 
     function setBodyState(stage) {
-        document.body.classList.remove('state-allowed', 'state-expired', 'state-error');
+        document.body.classList.remove('state-allowed', 'state-expired', 'state-error', 'state-offline');
         if (stage === 'allowed') document.body.classList.add('state-allowed');
         else if (stage === 'expired') document.body.classList.add('state-expired');
         else if (stage === 'error') document.body.classList.add('state-error');
+        else if (stage === 'offline') document.body.classList.add('state-offline');
+    }
+
+    function offlineIcon() {
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+      <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/>
+      <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+      <path d="M12 20h.01"/></svg>`;
     }
 
     function refreshIcon() {
@@ -345,8 +360,16 @@
     function renderQueuePage() {
         renderNav(); clearTimer();
 
+        const s = state.queueStatus;
+        const stage = deriveStage(s);
+
+        // Connection lost while they sit in the queue. Their number is still valid,
+        // it just might be out of date — so we keep everything on screen and warn,
+        // rather than hiding the number they're watching for.
+        const isOffline = stage === 'queued' && state.staleRefresh;
+
         const refreshTimeStr = state.lastRefreshedAt
-            ? `<div class="micro" style="opacity: 0.85;">Last refreshed: ${state.lastRefreshedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}${state.staleRefresh ? ' · couldn\'t reach server' : ''}</div>`
+            ? `<div class="micro" style="opacity: 0.85;">Last refreshed: ${state.lastRefreshedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}${state.staleRefresh && !isOffline ? ' · couldn\'t reach server' : ''}</div>`
             : '';
 
         // The "XXX" checking screen. Shown while we have no status yet, and also on
@@ -377,9 +400,6 @@
             return;
         }
 
-        const s = state.queueStatus;
-        const stage = deriveStage(s);
-
         if (!state.queueId || stage === 'never') {
             setBodyState('');
             app.innerHTML = `
@@ -402,17 +422,20 @@
             return;
         }
 
-        setBodyState(stage);
+        setBodyState(isOffline ? 'offline' : stage);
 
         const highest = s && s.highestServingQueueNumber ? fmtNum(s.highestServingQueueNumber) : 'XXX';
         const qNum    = stage === 'error' ? 'XXX' : fmtNum(s.queueNumber);
-        const pillClass  = stage === 'allowed' ? 'allowed' : (stage === 'expired' || stage === 'error') ? 'expired' : 'waiting';
+        const pillClass  = isOffline ? 'offline'
+            : stage === 'allowed' ? 'allowed'
+                : (stage === 'expired' || stage === 'error') ? 'expired' : 'waiting';
 
         const secondaryCopy =
-            stage === 'error' ? `Your queue ID is invalid. This is usually caused by the artist resetting the queue or if you have a queue ID from a different day. <br /><br />Please return to their booth if you believe this is in error. Alternatively, click re-queue below to rejoin the queue.`
-                : stage === 'allowed' ? `Please join the line at ${CONFIG.ARTIST_LABEL}'s booth before the timer is up.`
-                    : stage === 'expired' ? `Unfortunately, you missed your call. This page refreshes every minute — please check it often.`
-                        : `Currently serving through number ${highest}.`;
+            isOffline ? `Can't connect to the server, data may be outdated. Please check your network.`
+                : stage === 'error' ? `Your queue ID is invalid. This is usually caused by the artist resetting the queue or if you have a queue ID from a different day. <br /><br />Please return to their booth if you believe this is in error. Alternatively, click re-queue below to rejoin the queue.`
+                    : stage === 'allowed' ? `Please join the line at ${CONFIG.ARTIST_LABEL}'s booth before the timer is up.`
+                        : stage === 'expired' ? `Unfortunately, you missed your call. This page refreshes every minute — please check it often.`
+                            : `Currently serving through number ${highest}.`;
 
         const mLeft = s ? minsLeft(s.currentTime, s.expiresAt) : 0;
 
@@ -444,7 +467,8 @@
         <div class="card hero-card stack">
           <div class="refresh-row">
             <div class="pill ${pillClass}">
-              <h1 class="page-title">${stageLabel(s)}</h1>
+              ${isOffline ? offlineIcon() : ''}
+              <h1 class="page-title">${isOffline ? 'No connection' : stageLabel(s)}</h1>
             </div>
             <button class="icon-btn" id="refreshBtn" aria-label="Refresh">${refreshIcon()}</button>
           </div>

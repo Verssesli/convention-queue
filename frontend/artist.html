@@ -64,7 +64,9 @@
         .shell > *{min-width:0;}
         .topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--color-bg) 88%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid var(--color-divider);padding:calc(env(safe-area-inset-top) + var(--space-3)) var(--space-4) var(--space-3);}
         .topbar-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);}
-        .topbar-nav{display:flex;gap:var(--space-2);overflow-x:auto;scrollbar-width:none;}
+        /* min-width:0 lets the nav shrink inside the flex row so it can scroll,
+           instead of forcing the row wider than the screen. */
+        .topbar-nav{display:flex;gap:var(--space-2);overflow-x:auto;scrollbar-width:none;min-width:0;flex:1 1 auto;}
         .topbar-nav::-webkit-scrollbar{display:none;}
         .topbar-actions{display:flex;gap:var(--space-2);flex-shrink:0;}
         .icon-btn,.btn,.nav-chip{min-height:44px;min-width:44px;border:1px solid var(--color-border);background:var(--color-surface);border-radius:var(--radius-full);transition:transform var(--transition),background var(--transition),border-color var(--transition),color var(--transition),rotate var(--transition);}
@@ -72,8 +74,17 @@
         .icon-btn{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;cursor:pointer;line-height:1;flex:none;}
         .icon-btn > span,.icon-btn > svg{display:inline-flex;align-items:center;justify-content:center;width:19px;height:19px;flex:none;}
         .icon-btn > span > svg{width:19px;height:19px;display:block;}
-        .nav-chip{padding:0 var(--space-4);white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;font-size:var(--text-sm);color:var(--color-text-muted);font-weight:500;}
+        /* flex:none stops the chips being squeezed narrower than their label — that
+           squeezing is what made the text spill outside the pills on phones. */
+        .nav-chip{padding:0 var(--space-4);white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;font-size:var(--text-sm);color:var(--color-text-muted);font-weight:500;flex:none;}
         .nav-chip.active{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-text-inverse);font-weight:700;}
+        /* Long labels don't fit three-across on a phone, so swap in short ones. */
+        .nav-short{display:none;}
+        @media(max-width:759px){
+            .nav-long{display:none;}
+            .nav-short{display:inline;}
+            .nav-chip{padding:0 var(--space-3);}
+        }
         .page{width:min(100%,1180px);margin:0 auto;padding:var(--space-5) var(--space-4) calc(var(--space-8) + env(safe-area-inset-bottom));min-height:0;}
         .stack{display:grid;gap:var(--space-4);}
         .card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-xl);box-shadow:var(--shadow-sm);padding:var(--space-5);min-width:0;}
@@ -95,7 +106,11 @@
         .pill.waiting{background:var(--color-waiting-bg);color:var(--color-waiting);}
         .pill.allowed{background:var(--color-success-bg);color:color-mix(in srgb,var(--color-success) 85%,black);}
         .pill.expired{background:var(--color-danger-bg);color:var(--color-danger);}
-        .meta-grid{display:grid;gap:var(--space-3);grid-template-columns:repeat(2,minmax(0,1fr));}
+        /* Sized by the space actually available rather than by viewport breakpoints.
+           Fixed column counts broke in the split layout: at tablet widths the left
+           pane is only ~half the screen, so a 4-column rule squeezed each tile to
+           ~100px and clipped labels like "CURRENTLY ALLOWED". */
+        .meta-grid{display:grid;gap:var(--space-3);grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}
         .meta{background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:var(--space-4);min-height:124px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:var(--space-2);}
         .meta.is-action{cursor:pointer;transition:transform var(--transition),border-color var(--transition),background var(--transition),box-shadow var(--transition);text-align:left;width:100%;}
         .meta.is-action:hover{border-color:color-mix(in srgb,var(--color-primary) 40%,var(--color-border));background:color-mix(in srgb,var(--color-primary-highlight) 36%,var(--color-surface-2));}
@@ -164,14 +179,12 @@
         @media(min-width:760px){
             .split{grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);}
             .catalogue-admin-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-            .meta-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
             .modal-backdrop{place-items:center;}
             .modal{border-radius:var(--radius-xl);}
         }
         @media(min-width:980px){
             .split{grid-template-columns:minmax(560px,1fr) minmax(360px,420px);}
             .page{padding-top:var(--space-4);}
-            .meta-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
             .queue-list{max-height:min(68dvh,720px);}
         }
         @media(min-width:1180px){
@@ -510,6 +523,7 @@
         const [modal, setModal] = useState(null);
         const queueListRef = useRef(null);
         const itemRefs = useRef({});
+        const lastScrollTargetRef = useRef(null);
 
         const loadQueue = useCallback(async () => {
             try {
@@ -524,38 +538,47 @@
             if (!queueData.loaded) loadQueue();
         }, [queueData.loaded, loadQueue]);
 
+        // Keep the boundary between "allowed" and "still waiting" in view — that's
+        // the row the artist works from.
         useEffect(() => {
-            if (!queueData.entries.length) return;
             const container = queueListRef.current;
-            if (!container) return;
+            if (!container || !queueData.entries.length) return;
 
-            const allowedEntries = queueData.entries.filter(entry => entryStatus(entry, queueData.currentTime) === 'allowed');
+            const allowedEntries = queueData.entries.filter(e => entryStatus(e, queueData.currentTime) === 'allowed');
 
-            if (allowedEntries.length === 0) {
-                container.scrollTo({ top: 0, behavior: 'smooth' });
-            } else {
+            let targetNumber = null;
+            if (allowedEntries.length) {
                 const maxAllowedNum = Math.max(...allowedEntries.map(e => e.queueNumber));
-                const targetNum = maxAllowedNum + 1;
-
-                const targetEntry = queueData.entries.find(e => e.queueNumber === targetNum);
-
-                if (targetEntry) {
-                    const node = itemRefs.current[targetEntry.queueNumber];
-                    if (node) {
-                        const top = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2;
-                        container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
-                    }
-                } else {
-                    const maxAllowedEntry = queueData.entries.find(e => e.queueNumber === maxAllowedNum);
-                    if (maxAllowedEntry) {
-                        const node = itemRefs.current[maxAllowedEntry.queueNumber];
-                        if (node) {
-                            const top = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2;
-                            container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
-                        }
-                    }
-                }
+                const next = queueData.entries.find(e => e.queueNumber === maxAllowedNum + 1);
+                targetNumber = next ? next.queueNumber : maxAllowedNum;
             }
+
+            // Only move when the row we care about actually changes. Re-running on
+            // every poll would drag the list back under the artist's finger mid-scroll,
+            // which at a 15s refresh is constant.
+            if (lastScrollTargetRef.current === targetNumber) return;
+            lastScrollTargetRef.current = targetNumber;
+
+            if (targetNumber === null) {
+                container.scrollTo({ top: 0, behavior: 'smooth' });
+                return;
+            }
+
+            const node = itemRefs.current[targetNumber];
+            if (!node) return;
+
+            // Measure both rects rather than using node.offsetTop: offsetTop is
+            // relative to the nearest *positioned* ancestor, which this scroll
+            // container is not, so it returned an offset from somewhere further up
+            // the tree and consistently landed on the wrong entry.
+            const containerRect = container.getBoundingClientRect();
+            const nodeRect = node.getBoundingClientRect();
+            const top = container.scrollTop
+                + (nodeRect.top - containerRect.top)
+                - (container.clientHeight / 2)
+                + (nodeRect.height / 2);
+
+            container.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
         }, [queueData.entries, queueData.currentTime]);
 
         const allowUsers = async (count) => {
@@ -939,9 +962,15 @@
                 <header className="topbar">
                     <div className="topbar-row">
                         <nav className="topbar-nav" aria-label="Artist views">
-                            <a className={`nav-chip ${route === 'artist-queue' ? 'active' : ''}`} href="#artist-queue">Queue management</a>
-                            <a className={`nav-chip ${route === 'artist-catalogue' ? 'active' : ''}`} href="#artist-catalogue">Catalogue management</a>
-                            <a className={`nav-chip ${route === 'artist-qr' ? 'active' : ''}`} href="#artist-qr">QR code</a>
+                            <a className={`nav-chip ${route === 'artist-queue' ? 'active' : ''}`} href="#artist-queue">
+                                <span className="nav-long">Queue management</span><span className="nav-short">Queue</span>
+                            </a>
+                            <a className={`nav-chip ${route === 'artist-catalogue' ? 'active' : ''}`} href="#artist-catalogue">
+                                <span className="nav-long">Catalogue management</span><span className="nav-short">Catalogue</span>
+                            </a>
+                            <a className={`nav-chip ${route === 'artist-qr' ? 'active' : ''}`} href="#artist-qr">
+                                <span className="nav-long">QR code</span><span className="nav-short">QR</span>
+                            </a>
                         </nav>
                         <div className="topbar-actions">
                             <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
