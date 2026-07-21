@@ -166,6 +166,8 @@
         API_BASE: '',
         THEME_COOKIE: 'con_theme_artist',
         AUTO_REFRESH_MS: 60000,
+        // Collapses the burst of resume events into a single reload.
+        RESUME_STALE_MS: 5000,
     };
 
     function getRoute() { return location.hash.replace('#','').trim() || 'artist-queue'; }
@@ -592,6 +594,7 @@
         const [route, setRoute] = useState(getRoute());
         const [queueData, setQueueData] = useState({ loaded:false, refreshing:false, entries:[], accessWindowMinutes:30, currentTime:null, highestServingQueueNumber:null, lastRefreshedAt:null });
         const [catalogueState, setCatalogueState] = useState({ loaded:false, refreshing:false, images:[] });
+        const lastResumeRef = useRef(0);
 
         useEffect(() => {
             const saved = getCookie(CONFIG.THEME_COOKIE);
@@ -624,6 +627,32 @@
             }, CONFIG.AUTO_REFRESH_MS);
             return () => clearInterval(timer);
         }, [sessionReady, route]);
+
+        // Re-check the queue whenever the panel comes back into view. The booth
+        // tablet gets locked and app-switched just like an attendee's phone, and a
+        // stale list here means letting in the wrong numbers. See index.html for
+        // why all four events are needed to cover iOS and Android.
+        useEffect(() => {
+            if (!sessionReady) return;
+            const onResume = () => {
+                if (document.visibilityState !== 'visible') return;
+                if (getRoute() === 'artist-catalogue') return;
+                // Several of these events fire together on a single resume.
+                if (Date.now() - lastResumeRef.current < CONFIG.RESUME_STALE_MS) return;
+                lastResumeRef.current = Date.now();
+                animateRefresh('queue', () => api('/api/artist/queue')).then(data => setQueueData(data)).catch(() => {});
+            };
+            document.addEventListener('visibilitychange', onResume);
+            document.addEventListener('resume', onResume);
+            window.addEventListener('pageshow', onResume);
+            window.addEventListener('focus', onResume);
+            return () => {
+                document.removeEventListener('visibilitychange', onResume);
+                document.removeEventListener('resume', onResume);
+                window.removeEventListener('pageshow', onResume);
+                window.removeEventListener('focus', onResume);
+            };
+        }, [sessionReady, api, animateRefresh]);
 
         const api = useCallback(async (path, opts = {}) => {
             const headers = { ...(opts.headers || {}) };

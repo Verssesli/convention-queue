@@ -166,7 +166,14 @@
         ARTIST_LABEL: "the artist",
         QUEUE_COOKIE: 'con_queue_id',
         THEME_COOKIE: 'con_theme',
-        AUTO_REFRESH_MS: 60000
+        AUTO_REFRESH_MS: 60000,
+        // If the page comes back into view and the data is older than this, do a
+        // visible "welcome back" re-check. Anything fresher is left alone so a
+        // quick app-switch doesn't flash the screen for no reason.
+        RESUME_STALE_MS: 5000,
+        // A fetch issued just as the phone locks can hang indefinitely. Without a
+        // timeout that would leave refreshing=true forever and wedge the page.
+        REQUEST_TIMEOUT_MS: 15000
     };
 
     const state = {
@@ -176,6 +183,8 @@
         catalogue: [],
         refreshTimer: null,
         refreshing: false,
+        resuming: false,
+        staleRefresh: false,
         lastRefreshedAt: null
     };
 
@@ -249,9 +258,18 @@
     }
 
     async function api(path, opts = {}) {
-        const res = await fetch(CONFIG.API_BASE + path, {
-            headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) }, ...opts
-        });
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(CONFIG.API_BASE + path, {
+                ...opts,
+                headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+                signal: ctrl.signal
+            });
+        } finally {
+            clearTimeout(timer);
+        }
         if (!res.ok) {
             let detail = 'Request failed';
             try { const e = await res.json(); detail = e.message || detail; } catch(_) {}
@@ -314,20 +332,25 @@
         renderNav(); clearTimer();
 
         const refreshTimeStr = state.lastRefreshedAt
-            ? `<div class="micro" style="opacity: 0.85;">Last refreshed: ${state.lastRefreshedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</div>`
+            ? `<div class="micro" style="opacity: 0.85;">Last refreshed: ${state.lastRefreshedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}${state.staleRefresh ? ' · couldn\'t reach server' : ''}</div>`
             : '';
 
-        if (state.queueId && !state.queueStatus) {
+        // The "XXX" checking screen. Shown while we have no status yet, and also on
+        // a resume re-check so a returning user can see at a glance that the number
+        // on screen is being re-verified rather than trusting a stale one.
+        if (state.queueId && (!state.queueStatus || state.resuming)) {
             setBodyState('');
+            const checkTitle = state.resuming ? 'Welcome back' : 'Checking your spot';
+            const checkCopy  = state.resuming ? 'Refreshing your place in line…' : 'Updating status from server…';
             app.innerHTML = `
         <section class="queue-screen">
           <div class="card hero-card stack">
             <div class="refresh-row">
-              <div class="pill waiting"><h1 class="page-title">Checking your spot</h1></div>
+              <div class="pill waiting"><h1 class="page-title">${checkTitle}</h1></div>
               <button class="icon-btn" id="refreshBtn" aria-label="Refresh">${refreshIcon()}</button>
             </div>
             <p class="queue-number">XXX</p>
-            <p class="subtle">Updating status from server…</p>
+            <p class="subtle">${checkCopy}</p>
             <div class="loading-bar"></div>
             <div class="action-container">
               <div class="btn-row"><button class="btn btn-secondary" disabled>Join queue</button></div>
@@ -335,8 +358,8 @@
             </div>
           </div>
         </section>`;
-            document.getElementById('refreshBtn').addEventListener('click', doRefresh);
-            startTimer(doRefresh);
+            document.getElementById('refreshBtn').addEventListener('click', () => doRefresh());
+            startTimer(() => doRefresh());
             return;
         }
 
@@ -360,8 +383,8 @@
           </div>
         </section>`;
             document.getElementById('joinBtn').addEventListener('click', doJoin);
-            document.getElementById('refreshBtn').addEventListener('click', doRefresh);
-            startTimer(doRefresh);
+            document.getElementById('refreshBtn').addEventListener('click', () => doRefresh());
+            startTimer(() => doRefresh());
             return;
         }
 
@@ -421,10 +444,10 @@
         </div>
       </section>`;
 
-        document.getElementById('refreshBtn').addEventListener('click', doRefresh);
+        document.getElementById('refreshBtn').addEventListener('click', () => doRefresh());
         if (document.getElementById('leaveBtn'))   document.getElementById('leaveBtn').addEventListener('click', doLeave);
         if (document.getElementById('requeueBtn')) document.getElementById('requeueBtn').addEventListener('click', doRequeue);
-        startTimer(doRefresh);
+        startTimer(() => doRefresh());
     }
 
     async function doJoin() {
@@ -438,7 +461,9 @@
         } catch(e) { alert(e.message); }
     }
 
-    async function doRefresh() {
+    // opts.resume — set only by handleResume(). Puts the page into the "XXX"
+    // checking state for the duration, which normal timer/manual refreshes skip.
+    async function doRefresh(opts = {}) {
         if (!state.queueId) {
             state.lastRefreshedAt = new Date();
             renderQueuePage();
@@ -447,6 +472,7 @@
         if (state.refreshing) return;
 
         state.refreshing = true;
+        if (opts.resume === true) state.resuming = true;
         renderQueuePage();
 
         const minSpin = new Promise(r => setTimeout(r, 850));
@@ -456,6 +482,7 @@
                 minSpin
             ]);
             state.lastRefreshedAt = new Date();
+            state.staleRefresh = false;
             if (data.leftQueue) {
                 deleteCookie(CONFIG.QUEUE_COOKIE); state.queueId = null; state.queueStatus = null;
             } else {
@@ -463,13 +490,22 @@
             }
         } catch(e) {
             await minSpin;
-            state.lastRefreshedAt = new Date();
             if (e.status === 404) {
+                // The server answered — the entry is genuinely gone.
                 state.queueStatus = { isError: true };
+                state.lastRefreshedAt = new Date();
+                state.staleRefresh = false;
+            } else {
+                // Network error or timeout: keep the last known status, but don't
+                // bump "Last refreshed" — claiming freshness we don't have is
+                // exactly the false impression we're trying to avoid.
+                state.staleRefresh = true;
             }
+        } finally {
+            state.refreshing = false;
+            state.resuming = false;
+            renderQueuePage();
         }
-        state.refreshing = false;
-        renderQueuePage();
     }
 
     async function doLeave() {
@@ -549,6 +585,36 @@
             doRefresh();
         }
     }
+
+    /* ── Resume detection ──
+       Almost everyone is on a phone. They lock the screen, switch apps, or leave
+       the tab — at which point the browser throttles or fully freezes our timers,
+       and iOS may restore the page from bfcache showing whatever was last painted.
+       The result is a stale number that looks current, so someone who has actually
+       been called thinks they haven't been. Re-check the moment we come back.
+
+       No single event covers both platforms, so we listen to all of them and let
+       handleResume() dedupe:
+         visibilitychange — the primary signal on iOS and Android
+         pageshow         — fires on iOS Safari bfcache restore, where
+                            visibilitychange frequently does not
+         focus            — catches app-switcher returns that skip both of the above
+         resume           — Page Lifecycle API, for pages Chrome/Android froze
+    */
+    function handleResume() {
+        if (document.visibilityState !== 'visible') return;
+        if (state.route !== 'queue' || !state.queueId) return;
+        if (state.refreshing) return;
+        const sinceMs = state.lastRefreshedAt ? Date.now() - state.lastRefreshedAt.getTime() : Infinity;
+        // Data is still fresh — a brief switch away and back needs no interruption.
+        if (sinceMs < CONFIG.RESUME_STALE_MS) return;
+        doRefresh({ resume: true });
+    }
+
+    document.addEventListener('visibilitychange', handleResume);
+    document.addEventListener('resume', handleResume);
+    window.addEventListener('pageshow', handleResume);
+    window.addEventListener('focus', handleResume);
 
     window.addEventListener('hashchange', renderRoute);
     renderRoute();
