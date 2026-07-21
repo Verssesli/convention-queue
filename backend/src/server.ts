@@ -20,6 +20,7 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const PORT = Number(process.env.PORT ?? 3000);
 const UPLOAD_DIR = path.resolve(process.env.UPLOAD_DIR ?? path.join(__dirname, '../uploads'));
 const FRONTEND_DIR = path.resolve(process.env.FRONTEND_DIR ?? path.join(__dirname, '../../frontend'));
+const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB ?? 20);
 
 const app = Fastify({
     // The app runs behind a reverse proxy (binds 127.0.0.1), so the real client
@@ -53,8 +54,12 @@ async function start() {
         timeWindow: '1 minute',
     });
 
+    // Keep this in step with the reverse proxy's body limit. nginx defaults to
+    // client_max_body_size 1m and rejects anything larger with its own HTML page,
+    // before the request ever reaches here — so a mismatch shows up as an upload
+    // failure the app never sees and cannot explain.
     await app.register(multipart, {
-        limits: { fileSize: 20 * 1024 * 1024 },
+        limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024 },
     });
 
     await app.register(staticFiles, {
