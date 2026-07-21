@@ -22,9 +22,72 @@ db.exec(`
 `);
 
 export const ACCESS_COOKIE_NAME = process.env.ACCESS_COOKIE_NAME ?? 'queue_access';
-export const ACCESS_TTL_SECONDS = Number(process.env.ACCESS_TTL_SECONDS ?? 60 * 60 * 24 * 3);
 export const ACCESS_COOKIE_SECURE =
     (process.env.ACCESS_COOKIE_SECURE ?? (process.env.NODE_ENV === 'production' ? 'true' : 'false')) === 'true';
+
+// ── Access lifetime ──
+// A scan is good until the end of the event day, not for a rolling window, so
+// yesterday's attendees can't queue up before today's doors open.
+//
+// The zone must be the *event's*, not the server's: on a VPS in another region
+// "end of day" would otherwise land in the middle of the convention. Defaults to
+// the host's zone, which is right when the server sits at the venue.
+function resolveTimeZone(): string {
+    const configured = process.env.EVENT_TIMEZONE;
+    const hostZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    if (!configured) return hostZone;
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: configured });
+        return configured;
+    } catch {
+        console.warn(`EVENT_TIMEZONE "${configured}" is not a valid IANA zone; falling back to ${hostZone}.`);
+        return hostZone;
+    }
+}
+export const EVENT_TIMEZONE = resolveTimeZone();
+
+// Hour (0–23) at which one event day rolls into the next. 0 = midnight. Raise it
+// for late-running events so a queue still live at 23:59 isn't cut off mid-line;
+// 4 means "4am counts as the previous day", which still blocks next-day arrivals.
+const DAY_ROLLOVER_HOUR = Math.min(23, Math.max(0, Number(process.env.ACCESS_DAY_ROLLOVER_HOUR ?? 0)));
+
+// Wall-clock fields for an instant, in the event's zone.
+function wallClockParts(instant: Date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: EVENT_TIMEZONE, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(instant);
+
+    const get = (type: string) => Number(parts.find(p => p.type === type)!.value);
+    // Some ICU builds render midnight as hour 24 under hour12:false.
+    const hour = get('hour') % 24;
+    return { year: get('year'), month: get('month'), day: get('day'), hour, minute: get('minute'), second: get('second') };
+}
+
+// Offset between the event zone and UTC at a given instant, in ms.
+function zoneOffsetMs(instant: Date): number {
+    const w = wallClockParts(instant);
+    const asIfUtc = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second);
+    return asIfUtc - (instant.getTime() - instant.getMilliseconds());
+}
+
+/** Epoch ms of the next day-rollover boundary in the event's timezone. */
+export function endOfEventDay(now: Date = new Date()): number {
+    const offset = zoneOffsetMs(now);
+    const w = wallClockParts(now);
+
+    // Today's boundary if we haven't reached it yet, otherwise tomorrow's.
+    const boundaryIsToday = w.hour < DAY_ROLLOVER_HOUR;
+    const wallBoundary = Date.UTC(w.year, w.month - 1, w.day + (boundaryIsToday ? 0 : 1), DAY_ROLLOVER_HOUR, 0, 0, 0);
+
+    // Re-resolve the offset at the boundary itself so a DST shift between now and
+    // then doesn't move the cutoff by an hour.
+    let instant = wallBoundary - offset;
+    const offsetThen = zoneOffsetMs(new Date(instant));
+    if (offsetThen !== offset) instant = wallBoundary - offsetThen;
+    return instant;
+}
 
 const HASH_LENGTH = Number(process.env.ACCESS_HASH_LENGTH ?? 10);
 // No vowels (avoids accidental words) and no 0/1/l/i (avoids misreads if anyone
@@ -68,9 +131,11 @@ function sign(payload: string): string {
     return crypto.createHmac('sha256', getSecret()).update(payload).digest('base64url');
 }
 
-export function makeAccessToken(): string {
-    const issuedAt = String(Date.now());
-    return `${issuedAt}.${sign(issuedAt)}`;
+// The token carries its own absolute expiry, so the deadline is fixed at scan
+// time and can't be extended by simply coming back later in the day.
+export function makeAccessToken(expiresAt: number): string {
+    const payload = String(expiresAt);
+    return `${payload}.${sign(payload)}`;
 }
 
 export function hasQueueAccess(req: FastifyRequest): boolean {
@@ -80,22 +145,26 @@ export function hasQueueAccess(req: FastifyRequest): boolean {
     const dot = token.lastIndexOf('.');
     if (dot <= 0) return false;
 
-    const issuedAt = token.slice(0, dot);
+    const payload = token.slice(0, dot);
     const provided = Buffer.from(token.slice(dot + 1));
-    const expected = Buffer.from(sign(issuedAt));
+    const expected = Buffer.from(sign(payload));
     if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) return false;
 
-    const issued = Number(issuedAt);
-    return Number.isFinite(issued) && Date.now() - issued < ACCESS_TTL_SECONDS * 1000;
+    const expiresAt = Number(payload);
+    return Number.isFinite(expiresAt) && Date.now() < expiresAt;
 }
 
 export function grantQueueAccess(reply: FastifyReply) {
-    reply.setCookie(ACCESS_COOKIE_NAME, makeAccessToken(), {
+    const expiresAt = endOfEventDay();
+    // Cookie lifetime mirrors the signed expiry so the browser drops it on its own
+    // too. Floor of 1s keeps setCookie valid for a scan in the final second.
+    const maxAge = Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
+    reply.setCookie(ACCESS_COOKIE_NAME, makeAccessToken(expiresAt), {
         httpOnly: true,
         secure: ACCESS_COOKIE_SECURE,
         sameSite: 'lax',
         path: '/',
-        maxAge: ACCESS_TTL_SECONDS,
+        maxAge,
     });
 }
 
