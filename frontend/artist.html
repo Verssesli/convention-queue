@@ -311,8 +311,14 @@
         }, []);
         useEffect(() => () => clearTimeout(toastTimer.current), []);
 
+        // The browser knows the real public origin for certain. Sending it lets the
+        // server build a correct link even when the reverse proxy doesn't forward
+        // the original Host header (nginx's default), which would otherwise produce
+        // a QR code pointing at 127.0.0.1.
+        const originParam = `origin=${encodeURIComponent(location.origin)}`;
+
         const load = useCallback(async () => {
-            try { setData(await api('/api/artist/qr')); }
+            try { setData(await api(`/api/artist/qr?${originParam}`)); }
             catch (e) { flash(e.message || 'Could not load the QR code.'); }
             finally { setLoading(false); }
         }, [api, flash]);
@@ -355,7 +361,7 @@
         const regenerate = async () => {
             setBusy(true);
             try {
-                setData(await api('/api/artist/qr/regenerate', { method: 'POST' }));
+                setData(await api(`/api/artist/qr/regenerate?${originParam}`, { method: 'POST' }));
                 setConfirmOpen(false);
                 flash('New QR code generated. Replace the printed code at your table.');
             } catch (e) {
@@ -377,6 +383,17 @@
                         join the queue — anyone who opens the site directly is turned away.
                     </p>
                 </div>
+
+                {data.reachable === false && (
+                    <div className="warn-box" role="alert">
+                        <strong style={{ color: 'var(--color-danger)' }}>Don&rsquo;t print this code yet.</strong>
+                        <p className="micro">
+                            The link below points at a private address, so phones won&rsquo;t be able to open it.
+                            Set <code>PUBLIC_BASE_URL</code> in the server&rsquo;s <code>.env</code>, or add{' '}
+                            <code>proxy_set_header Host $host;</code> to your nginx config, then reload this page.
+                        </p>
+                    </div>
+                )}
 
                 <div className="card qr-layout">
                     <div className="qr-frame">

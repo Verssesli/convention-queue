@@ -107,31 +107,93 @@ export function matchesAccessHash(candidate: string): boolean {
 }
 
 // ── Artist-facing QR routes (auth applied in server.ts) ──
-function publicBaseUrl(req: FastifyRequest): string {
-    const configured = process.env.PUBLIC_BASE_URL;
-    if (configured) return configured.replace(/\/+$/, '');
-    // trustProxy makes req.protocol honour X-Forwarded-Proto, so this resolves to
-    // the real public https://host behind nginx without extra configuration.
-    return `${req.protocol}://${req.headers.host}`;
+// An origin that would produce a QR code nobody outside this machine can scan.
+function isUnreachableHost(host: string): boolean {
+    const bare = host.replace(/:\d+$/, '').replace(/^\[|]$/g, '').toLowerCase();
+    return bare === 'localhost'
+        || bare === '::1'
+        || bare === '0.0.0.0'
+        || /^127\./.test(bare)
+        || /^10\./.test(bare)
+        || /^192\.168\./.test(bare)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(bare);
 }
 
-async function describeAccess(req: FastifyRequest) {
+// Accepts only a bare scheme://host[:port] origin, so a bad value can't smuggle a
+// path or querystring into the QR target.
+function sanitiseOrigin(value?: string): string | null {
+    if (!value) return null;
+    try {
+        const u = new URL(value);
+        if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+        if (!u.hostname) return null;
+        return u.origin;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Resolve the public origin attendees will actually reach, in order of trust:
+ *   1. PUBLIC_BASE_URL — explicit config always wins.
+ *   2. X-Forwarded-Host / Host — correct when the proxy forwards the real host.
+ *      nginx does NOT do this by default: it sends the upstream address, so this
+ *      yields 127.0.0.1:<port> unless `proxy_set_header Host $host;` is set.
+ *   3. The origin reported by the artist's own browser. They are authenticated
+ *      and are looking at the very domain attendees will use, so this is a
+ *      reliable last resort that keeps the QR correct on a default nginx setup.
+ */
+function publicBaseUrl(req: FastifyRequest, clientOrigin?: string): string {
+    const configured = sanitiseOrigin(process.env.PUBLIC_BASE_URL);
+    if (configured) return configured;
+
+    // trustProxy makes both of these honour X-Forwarded-Proto / X-Forwarded-Host.
+    const headerHost = (req as any).host || req.headers.host;
+    if (headerHost && !isUnreachableHost(headerHost)) {
+        return `${req.protocol}://${headerHost}`;
+    }
+
+    const fromBrowser = sanitiseOrigin(clientOrigin);
+    if (fromBrowser && !isUnreachableHost(new URL(fromBrowser).host)) {
+        req.log.warn(
+            { headerHost, using: fromBrowser },
+            'QR link: proxy did not forward the public host (add `proxy_set_header Host $host;` to nginx, ' +
+            'or set PUBLIC_BASE_URL). Falling back to the origin reported by the artist\'s browser.'
+        );
+        return fromBrowser;
+    }
+
+    // Nothing usable — emit the best guess but make the misconfiguration loud.
+    const fallback = `${req.protocol}://${headerHost ?? 'localhost'}`;
+    req.log.warn(
+        { headerHost, clientOrigin, using: fallback },
+        'QR link points at a non-public address and will not be scannable. ' +
+        'Set PUBLIC_BASE_URL, or add `proxy_set_header Host $host;` to your nginx location block.'
+    );
+    return fallback;
+}
+
+async function describeAccess(req: FastifyRequest, clientOrigin?: string) {
     const hash = getAccessHash();
-    const url = `${publicBaseUrl(req)}/${hash}`;
+    const base = publicBaseUrl(req, clientOrigin);
+    const url = `${base}/${hash}`;
     const qrDataUrl = await QRCode.toDataURL(url, {
         width: 640,
         margin: 2,
         errorCorrectionLevel: 'M',
         color: { dark: '#000000ff', light: '#ffffffff' },
     });
-    return { hash, url, qrDataUrl };
+    return { hash, url, qrDataUrl, reachable: !isUnreachableHost(new URL(base).host) };
 }
 
-export async function artistAccessRoutes(app: FastifyInstance) {
-    app.get('/api/artist/qr', async (req: FastifyRequest) => describeAccess(req));
+type OriginQuery = { Querystring: { origin?: string } };
 
-    app.post('/api/artist/qr/regenerate', async (req: FastifyRequest) => {
+export async function artistAccessRoutes(app: FastifyInstance) {
+    app.get('/api/artist/qr', async (req: FastifyRequest<OriginQuery>) =>
+        describeAccess(req, req.query.origin));
+
+    app.post('/api/artist/qr/regenerate', async (req: FastifyRequest<OriginQuery>) => {
         regenerateAccessHash();
-        return describeAccess(req);
+        return describeAccess(req, req.query.origin);
     });
 }
