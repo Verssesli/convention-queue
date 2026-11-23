@@ -137,3 +137,16 @@ dist
 /backend/data/
 /backend/uploads/
 /.idea/
+# --- added for git-based deploy (2026-11-23) ---
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite
+*.db
+*.db-*
+backend/data/
+backend/uploads/
+backend/dist/
+frontend/*-old*.html
